@@ -112,7 +112,7 @@ input[type=range]::-moz-range-thumb{width:11px;height:11px;border:0;border-radiu
       <dt>Период</dt><dd id="rPeriod">1,3373 с</dd>
       <dt>Вращение</dt><dd id="rFreq">0,748 об/с</dd>
       <dt>Расстояние</dt><dd id="rDist">≈ 980 св. лет</dd>
-      <dt>Углы</dt><dd id="rGeom">не измерены</dd>
+      <dt>Углы по статьям</dt><dd id="rGeom">не измерены</dd>
       <dt>Сигнал/шум</dt><dd id="rSnr">—</dd>
     </dl>
     <p class="desc" id="pdesc"></p>
@@ -133,7 +133,7 @@ input[type=range]::-moz-range-thumb{width:11px;height:11px;border:0;border-radiu
       <button class="btn" id="sRaw" type="button" aria-pressed="true">Одиночные импульсы</button>
       <button class="btn" id="sFold" type="button" aria-pressed="false">Свёртка за час</button>
     </div>
-    <div class="hint">Свёртка складывает сигнал по периоду и гасит шум: так находят слабые пульсары. Пунктир — линия на Землю: импульс приходит, когда её пересекает луч.</div>
+    <div class="hint">Свёртка складывает сигнал по периоду и гасит шум: так находят слабые пульсары.</div>
     <div class="btns">
       <button class="btn" id="bFull" type="button">Во весь экран</button>
       <button class="btn" id="bHide" type="button">Скрыть · H</button>
@@ -183,14 +183,15 @@ const deg = d => d * Math.PI / 180;
 
 // Numbers and their sources: RESEARCH.md. Catalogue values (P, W50, W10, S1400, distance) are from ATNF psrcat v2.6.1.
 // comps: [phase centre, sigma in phase, amplitude], shaped to the catalogue W50/W10 at 1.4 GHz; win: phase window of the pulse stack
-// alpha: magnetic inclination, zeta: angle between the spin axis and the line of sight to Earth (null when not measured)
+// alpha: magnetic inclination as drawn (kept small so the beams run nearly straight up and down);
+// zeta and geom: the measured angles from the literature, shown in the HUD (null / text when not measured)
 // sci: S (mJy at 1.4 GHz), tsys (K, receiver plus sky), mod (log-normal spread of pulse energy)
 const PULSARS = [
   { key: 'B1919+21', alias: 'CP 1919 · LGM-1', P: 1.3373, period: '1,3373 с', freq: '0,748 об/с', chip: '0,75 Гц', dist: '≈ 980 св. лет',
-    alpha: 30, zeta: null, geom: 'не измерены',
+    alpha: 10, zeta: null, geom: 'не измерены',
     beamW: 0.1,
     // old and slow: a narrow pencil beam, light cylinder 64 000 km away so the beam barely bends, a cool surface
-    look: { core: 0.55, twist: 0.12, beamI: 0.65, beam2: 1, fieldExt: 1.25, fieldI: 0.8, surf: 0.5, caps: 0.6, tint: [0.78, 0.86, 1], surfTint: [0.7, 0.76, 0.95] },
+    look: { core: 0.55, twist: 0.08, beamI: 0.65, beam2: 1, fieldExt: 1.25, fieldI: 0.8, surf: 0.5, caps: 0.6, tint: [0.78, 0.86, 1], surfTint: [0.7, 0.76, 0.95] },
     comps: [[-0.00194, 0.0012, 1.0], [0.00194, 0.0012, 0.8]], win: [-0.012, 0.012],
     // drifting subpulses: P2 ≈ 13.6 ms, the pattern repeats every P3 ≈ 4.2 rotations (Primak et al. 2022)
     drift: { spacing: 0.0102, rate: 0.0102 / 4.2, width: 0.0012 },
@@ -199,20 +200,20 @@ const PULSARS = [
     desc: 'Первый пульсар в истории. Его импульсы, сложенные столбиком, стали обложкой альбома Unknown Pleasures группы Joy Division.',
     line: '1,337 секунды на оборот. С этого звука всё началось.' },
   { key: 'B0833−45', alias: 'Пульсар в Парусах', P: 0.089328, period: '89,3 мс', freq: '11,2 об/с', chip: '11 Гц', dist: '≈ 910 св. лет',
-    alpha: 70, zeta: 63.6, geom: 'α ≈ 70°, ζ = 63,6°',
+    alpha: 8, zeta: 63.6, geom: 'α ≈ 70°, ζ = 63,6°',
     beamW: 0.17,
     // young and hot, strong field; the beam starts to wind
-    look: { core: 0.9, twist: 0.9, beamI: 1, beam2: 1, fieldExt: 1.05, fieldI: 1, surf: 1, caps: 0.8, tint: [0.8, 0.9, 1], surfTint: [0.6, 0.72, 1] },
+    look: { core: 0.9, twist: 0.2, beamI: 1, beam2: 1, fieldExt: 1.05, fieldI: 1, surf: 1, caps: 0.8, tint: [0.8, 0.9, 1], surfTint: [0.6, 0.72, 1] },
     comps: [[0, 0.0081, 1.0], [0.012, 0.01, 0.3]], win: [-0.05, 0.07],
     sci: { S: 1050, tsys: 21, mod: 0.3 },
     env: [0.55, 0, 0.85, 0], nebA: [1.0, .42, .52], nebB: [.25, .75, .7],
     desc: 'Остаток сверхновой, вспыхнувшей около 11 000 лет назад. Самый яркий радиопульсар неба: каждый его импульс слышен чисто, почти без шума.',
     line: 'Одиннадцать оборотов в секунду. Каждый оборот слышен отдельным щелчком.' },
   { key: 'B0531+21', alias: 'Крабовидная туманность', P: 0.033704, period: '33,7 мс', freq: '29,7 об/с', chip: '30 Гц', dist: '≈ 6 500 св. лет',
-    alpha: 60, zeta: 61.3, geom: 'α ≈ 60° (неточно), ζ = 61,3°',
+    alpha: 10, zeta: 61.3, geom: 'α ≈ 60° (неточно), ζ = 61,3°',
     beamW: 0.24,
     // the most powerful of the five; the interpulse comes 0.4 of a turn after the main pulse
-    look: { core: 1.25, twist: 1.4, beamI: 1.25, beam2: 0.55, fieldExt: 0.9, fieldI: 1.1, surf: 1.15, caps: 0.8, tint: [0.86, 0.92, 1], surfTint: [0.62, 0.74, 1] },
+    look: { core: 1.25, twist: 0.25, beamI: 1.25, beam2: 0.55, fieldExt: 0.9, fieldI: 1.1, surf: 1.15, caps: 0.8, tint: [0.86, 0.92, 1], surfTint: [0.62, 0.74, 1] },
     comps: [[0, 0.025, 1.0], [0.4, 0.025, 0.55]], win: [-0.12, 0.55],
     // the nebula itself shines at ~900 Jy and floods the receiver; only giant pulses break through single-pulse noise
     sci: { S: 14, tsys: 590, mod: 0.3, giant: { rate: 1, fmin: 3 } },
@@ -220,21 +221,21 @@ const PULSARS = [
     desc: 'Её сверхновую 1054 года записали китайские астрономы. Туманность вокруг сама ярко светит в радио и глушит приёмник шумом, сквозь который пробиваются гигантские импульсы.',
     line: 'Тридцать оборотов в секунду. Сквозь шум туманности бьют гигантские импульсы.' },
   { key: 'J0437−4715', alias: 'Миллисекундный пульсар', P: 0.0057575, period: '5,757 мс', freq: '173,7 об/с', chip: '174 Гц', dist: '≈ 510 св. лет',
-    alpha: 42, zeta: 136, geom: 'α ≈ 42°, ζ ≈ 136°',
+    alpha: 7, zeta: 136, geom: 'α ≈ 42°, ζ ≈ 136°',
     beamW: 0.4,
     // millisecond pulsar: wide beams, a field thousands of times weaker, a compact magnetosphere wound tight,
     // a cold star with hot polar caps (seen in X-rays by NICER)
-    look: { core: 1.6, twist: 2.0, beamI: 0.85, beam2: 1, fieldExt: 0.55, fieldI: 0.45, surf: 0.4, caps: 2.2, tint: [0.82, 0.86, 1], surfTint: [0.66, 0.7, 0.92] },
+    look: { core: 1.6, twist: 0.3, beamI: 0.85, beam2: 1, fieldExt: 0.55, fieldI: 0.45, surf: 0.4, caps: 2.2, tint: [0.82, 0.86, 1], surfTint: [0.66, 0.7, 0.92] },
     comps: [[0, 0.0104, 1.0], [-0.045, 0.025, 0.25], [0.04, 0.03, 0.2]], win: [-0.15, 0.15],
     sci: { S: 150, tsys: 21, mod: 0.4 },
     env: [0, 0, 0, 1], nebA: [1, .5, .3], nebB: [.3, .4, .8],
     desc: 'Ближайший к нам миллисекундный пульсар. Его раскрутило вещество, перетянутое с компаньона, белого карлика. По стабильности хода он спорит с атомными часами.',
     line: 'Сто семьдесят четыре оборота в секунду. Это уже нота, почти фа малой октавы.' },
   { key: 'J1748−2446ad', alias: 'Шаровое скопление Терзан 5', P: 0.001396, period: '1,396 мс', freq: '716 об/с', chip: '716 Гц', dist: '≈ 21 600 св. лет',
-    alpha: 45, zeta: null, geom: 'неизвестны',
+    alpha: 8, zeta: null, geom: 'неизвестны',
     beamW: 0.5,
     // fastest known: light cylinder only ~70 km out, the tightest spiral and the widest beams
-    look: { core: 2.0, twist: 2.6, beamI: 0.8, beam2: 1, fieldExt: 0.42, fieldI: 0.4, surf: 0.45, caps: 2.0, tint: [0.84, 0.86, 1], surfTint: [0.66, 0.7, 0.92] },
+    look: { core: 2.0, twist: 0.35, beamI: 0.8, beam2: 1, fieldExt: 0.42, fieldI: 0.4, surf: 0.45, caps: 2.0, tint: [0.84, 0.86, 1], surfTint: [0.66, 0.7, 0.92] },
     comps: [[0, 0.04, 1.0], [0.085, 0.03, 0.4]], win: [-0.3, 0.3],
     // no catalogued flux: 0.1 mJy is an order-of-magnitude assumption for a very faint pulsar
     sci: { S: 0.1, tsys: 21, mod: 0 },
@@ -266,7 +267,7 @@ const profileAt = (p, x) => {
 const S_AXIS = [0, 1, 0];
 const X0 = [0, 0, 1];
 const Z0 = cross(X0, S_AXIS);
-// the camera sits 90 degrees in azimuth from the line to Earth (which lies along X0 at phase 0), so that line crosses the frame
+// side view from just above the equator
 const O_VIEW = norm(add(mul(S_AXIS, Math.cos(deg(78))), mul(Z0, Math.sin(deg(78)))));
 const HOME = 3; // J0437−4715, where the intro lands
 
@@ -275,7 +276,7 @@ const st = {
   started: false, intro: false, playing: false, hidden: false,
   fade: 0.5, fadeTarget: 0.5, fadeTau: 1,
   blur: 1, tune: 0, tuneT: 9, plasmaT: 0, disp: 0, dispRate: 4.8, swirl: 0, spin: null,
-  vis: { alpha: deg(42), zeta: deg(136), earthOn: 1, beamW: 0.4, look: JSON.parse(JSON.stringify(PULSARS[HOME].look)), env: [0, 0, 0, 1], nebA: [1, .5, .3], nebB: [.3, .4, .8] },
+  vis: { alpha: deg(7), beamW: 0.4, look: JSON.parse(JSON.stringify(PULSARS[HOME].look)), env: [0, 0, 0, 1], nebA: [1, .5, .3], nebB: [.3, .4, .8] },
   dist: 5.4, distT: 5.4, scope: false, fold: false, yaw: 0, pitch: 0, dragging: false, driftT: 0,
   lastMove: performance.now(),
 };
@@ -639,8 +640,6 @@ uniform float uSinA, uCosA, uTwist, uBeamLen;
 uniform float uCore, uBeam2, uFieldExt, uFieldI, uSurf, uCaps;
 uniform vec3 uBeamTint, uSurfTint;
 uniform vec2 uSwirl;
-uniform vec3 uEarth;
-uniform float uEarthOn;
 uniform vec4 uEnv;
 uniform vec3 uNebA, uNebB, uGal, uGalC, uClusterDir, uCompPos;
 uniform sampler3D uNoise;
@@ -805,19 +804,6 @@ vec3 beams(vec3 ro, vec3 rd, float tMax, float pix){
   return col * uBeamI;
 }
 
-// the line of sight to Earth: a pulse is heard when a beam sweeps across it
-float earthLine(vec3 ro, vec3 rd, float tMax, float pix){
-  vec3 A = uEarth*0.3, e = uEarth*4.2, w0 = ro - A;
-  float a = dot(e,e), b = dot(rd,e), dd = dot(rd,w0), ee = dot(e,w0), den = a - b*b;
-  float u = den > 1e-8 ? clamp((ee - dd*b)/den, 0.0, 1.0) : 0.0;
-  float t = max(u*b - dd, 0.0);
-  u = clamp(dot(ro + rd*t - A, e)/a, 0.0, 1.0);
-  if(t > tMax) return 0.0;
-  vec3 q = ro + rd*t - (A + e*u);
-  float w = max(0.005, pix*t*0.8), s = 0.3 + u*4.2;
-  return exp(-dot(q,q)/(w*w)) * step(0.45, fract(s*3.0)) * smoothstep(4.5, 2.5, s);
-}
-
 float hitSphere(vec3 ro, vec3 rd, float rad){ float b = dot(ro,rd), c = dot(ro,ro) - rad*rad, h = b*b - c; return h < 0.0 ? -1.0 : -b - sqrt(h); }
 
 void main(){
@@ -862,7 +848,6 @@ void main(){
   float tEnd = tHit < 0.0 ? 1e4 : tHit;
   col += volume(ro, rd, tEnd, jit);
   col += beams(ro, rd, tEnd, pix);
-  if(uEarthOn > 0.01) col += vec3(0.7,0.82,1.0) * earthLine(ro, rd, tEnd, pix) * 0.4 * uEarthOn;
   outColor = vec4(col * uFade * uHdr, 1.0);
 }`;
 
@@ -1408,8 +1393,6 @@ function frame(nowMs) {
   // ease scene parameters toward the selected pulsar
   const k = 1 - Math.exp(-dt / 0.7);
   vis.alpha += (deg(p.alpha) - vis.alpha) * k;
-  if (p.zeta != null) vis.zeta += (deg(p.zeta) - vis.zeta) * k;
-  vis.earthOn += ((p.zeta != null ? 1 : 0) - vis.earthOn) * k;
   vis.beamW += (p.beamW - vis.beamW) * k;
   for (let i = 0; i < 4; i++) vis.env[i] += (p.env[i] - vis.env[i]) * k;
   for (let i = 0; i < 3; i++) { vis.nebA[i] += (p.nebA[i] - vis.nebA[i]) * k; vis.nebB[i] += (p.nebB[i] - vis.nebB[i]) * k; }
@@ -1496,7 +1479,6 @@ function frame(nowMs) {
     uM1: m1, uM2: m2, uMe1: me1, uMe2: me2,
     uA1: a1, uA2: a2, uDuty1: duty(a1), uDuty2: duty(a2),
     uBeamW: vis.beamW, uBlur: st.blur, uBeamI: beamI,
-    uEarth: norm(add(mul(S_AXIS, Math.cos(vis.zeta)), mul(X0, Math.sin(vis.zeta)))), uEarthOn: vis.earthOn,
     uSinA: sa, uCosA: ca, uTwist: L.twist, uCore: L.core, uBeam2: L.beam2, uFieldExt: L.fieldExt, uFieldI: L.fieldI,
     uSurf: L.surf, uCaps: L.caps, uBeamTint: L.tint, uSurfTint: L.surfTint, uBeamLen: clamp(4.6 + (st.dist - 5.4) * 0.5, 4.6, 9), uSwirl: [Math.cos(st.swirl), Math.sin(st.swirl)],
     uFade: st.fade, uHdr: G.fmt.hdr,
