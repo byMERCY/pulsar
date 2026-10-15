@@ -115,7 +115,9 @@ input[type=range]::-moz-range-thumb{width:11px;height:11px;border:0;border-radiu
     <dl class="readout">
       <dt>Период</dt><dd id="rPeriod">1,3373 с</dd>
       <dt>Вращение</dt><dd id="rFreq">0,748 об/с</dd>
-      <dt>Расстояние</dt><dd id="rDist">≈ 2 300 св. лет</dd>
+      <dt>Расстояние</dt><dd id="rDist">≈ 980 св. лет</dd>
+      <dt>Углы</dt><dd id="rGeom">не измерены</dd>
+      <dt>Сигнал/шум</dt><dd id="rSnr">—</dd>
     </dl>
     <p class="desc" id="pdesc"></p>
   </header>
@@ -131,6 +133,11 @@ input[type=range]::-moz-range-thumb{width:11px;height:11px;border:0;border-radiu
       <button class="btn" id="mAtmo" type="button" aria-pressed="true">С атмосферой</button>
       <button class="btn" id="mScope" type="button" aria-pressed="false">Как в телескопе</button>
     </div>
+    <div class="btns" role="group" aria-label="Сигнал">
+      <button class="btn" id="sRaw" type="button" aria-pressed="true">Одиночные импульсы</button>
+      <button class="btn" id="sFold" type="button" aria-pressed="false">Свёртка за час</button>
+    </div>
+    <div class="hint">Свёртка складывает сигнал по периоду и гасит шум: так находят слабые пульсары. Пунктир — линия на Землю: импульс приходит, когда её пересекает луч.</div>
     <div class="btns">
       <button class="btn" id="bFull" type="button">Во весь экран</button>
       <button class="btn" id="bHide" type="button">Скрыть · H</button>
@@ -178,63 +185,79 @@ const rot = (v, k, a) => { const c = Math.cos(a), s = Math.sin(a), kv = cross(k,
   return [v[0] * c + kv[0] * s + k[0] * kd, v[1] * c + kv[1] * s + k[1] * kd, v[2] * c + kv[2] * s + k[2] * kd]; };
 const deg = d => d * Math.PI / 180;
 
-// comps: [phase centre, sigma in phase, amplitude]; win: phase window drawn in the pulse stack
+// Numbers and their sources: RESEARCH.md. Catalogue values (P, W50, W10, S1400, distance) are from ATNF psrcat v2.6.1.
+// comps: [phase centre, sigma in phase, amplitude], shaped to the catalogue W50/W10 at 1.4 GHz; win: phase window of the pulse stack
+// alpha: magnetic inclination, zeta: angle between the spin axis and the line of sight to Earth (null when not measured)
+// sci: S (mJy at 1.4 GHz), tsys (K, receiver plus sky), mod (log-normal spread of pulse energy)
 const PULSARS = [
-  { key: 'B1919+21', alias: 'CP 1919 · LGM-1', P: 1.3373, period: '1,3373 с', freq: '0,748 об/с', chip: '0,75 Гц', dist: '≈ 2 300 св. лет',
-    alpha: 24, beamW: 0.1,
+  { key: 'B1919+21', alias: 'CP 1919 · LGM-1', P: 1.3373, period: '1,3373 с', freq: '0,748 об/с', chip: '0,75 Гц', dist: '≈ 980 св. лет',
+    alpha: 30, zeta: null, geom: 'не измерены',
+    beamW: 0.1,
     // old and slow: a narrow pencil beam, light cylinder 64 000 km away so the beam barely bends, a cool surface
     look: { core: 0.55, twist: 0.12, beamI: 0.65, beam2: 1, fieldExt: 1.25, fieldI: 0.8, surf: 0.5, caps: 0.6, tint: [0.78, 0.86, 1], surfTint: [0.7, 0.76, 0.95] },
-    comps: [[-0.0052, 0.0036, 1.0], [0.0048, 0.0034, 0.78]], win: [-0.034, 0.034],
-    drift: { spacing: 0.0102, rate: 0.0021, width: 0.0024 }, jitter: 0.45, pop: 0.7,
+    comps: [[-0.00194, 0.0012, 1.0], [0.00194, 0.0012, 0.8]], win: [-0.012, 0.012],
+    // drifting subpulses: P2 ≈ 13.6 ms, the pattern repeats every P3 ≈ 4.2 rotations (Primak et al. 2022)
+    drift: { spacing: 0.0102, rate: 0.0102 / 4.2, width: 0.0012 },
+    sci: { S: 19, tsys: 21, mod: 0.3 },
     env: [0, 0, 0, 0], nebA: [1, .5, .3], nebB: [.3, .4, .8],
     desc: 'Первый пульсар в истории. Его импульсы, сложенные столбиком, стали обложкой альбома Unknown Pleasures группы Joy Division.',
     line: '1,337 секунды на оборот. С этого звука всё началось.' },
-  { key: 'B0833−45', alias: 'Пульсар в Парусах', P: 0.089328, period: '89,3 мс', freq: '11,2 об/с', chip: '11 Гц', dist: '≈ 950 св. лет',
-    alpha: 16, beamW: 0.17,
+  { key: 'B0833−45', alias: 'Пульсар в Парусах', P: 0.089328, period: '89,3 мс', freq: '11,2 об/с', chip: '11 Гц', dist: '≈ 910 св. лет',
+    alpha: 70, zeta: 63.6, geom: 'α ≈ 70°, ζ = 63,6°',
+    beamW: 0.17,
     // young and hot, strong field; the beam starts to wind
     look: { core: 0.9, twist: 0.9, beamI: 1, beam2: 1, fieldExt: 1.05, fieldI: 1, surf: 1, caps: 0.8, tint: [0.8, 0.9, 1], surfTint: [0.6, 0.72, 1] },
-    comps: [[-0.022, 0.008, 0.22], [0, 0.0075, 1.0]], win: [-0.08, 0.06],
+    comps: [[0, 0.0081, 1.0], [0.012, 0.01, 0.3]], win: [-0.05, 0.07],
+    sci: { S: 1050, tsys: 21, mod: 0.3 },
     env: [0.55, 0, 0.85, 0], nebA: [1.0, .42, .52], nebB: [.25, .75, .7],
-    // measured on a radio-telescope recording of Vela (see REC below): 10.4 dB modulation depth, pulse-to-pulse spread 19 %
-    rec: { cv: 0.19, rms: 0.33,
-      M: [1000,978,977,959,984,914,942,899,885,881,868,847,786,801,784,840,826,830,820,773,766,665,664,682,680,595,615,557,529,583,621,603,698,638,650,659,707,690,700,606,593,566,499,500,446,439,377,371,384,391,424,458,425,460,429,440,395,364,348,386,401,431,352,392,319,404,415,381,412,441,359,372,376,363,362,356,366,377,369,375,364,335,343,360,369,356,363,352,323,322,307,319,357,322,324,342,339,315,335,332,297,333,324,312,286,372,334,364,371,318,331,323,354,349,374,392,375,336,363,371,360,406,480,545,661,756,859,899],
-      bands: [-120,-23,-120,-21,-20,-120,-22,-22,-120,-22,-20,-19,-18,-19,-19,-14,-11,-11,-11,-6,-6,-6,-4,-9,-4,-3,-6,-4,-5,-5,-5,-2,-3,-4,0,-7,-12,-15,-16,-19,-15,-11,-12,-8,-11,-13,-16,-15,-15,-17,-15,-15,-17,-17,-18,-14,-13,-17,-17,-19,-20,-21,-23,-24,-27,-27,-28,-29,-31,-32,-31,-32,-33,-34,-35,-36,-38,-37,-36,-36,-36,-37,-36,-35,-32,-30,-34,-35,-39,-35,-34,-36,-44,-46,-45,-46,-43,-45,-48,-51] },
-    desc: 'Остаток сверхновой, вспыхнувшей около 11 000 лет назад. Иногда звезда рывком ускоряет вращение, астрономы называют это глитчем.',
-    line: 'Одиннадцать оборотов в секунду. Удары сливаются в дробь.' },
+    desc: 'Остаток сверхновой, вспыхнувшей около 11 000 лет назад. Самый яркий радиопульсар неба: каждый его импульс слышен чисто, почти без шума.',
+    line: 'Одиннадцать оборотов в секунду. Каждый оборот слышен отдельным щелчком.' },
   { key: 'B0531+21', alias: 'Крабовидная туманность', P: 0.033704, period: '33,7 мс', freq: '29,7 об/с', chip: '30 Гц', dist: '≈ 6 500 св. лет',
-    alpha: 20, beamW: 0.24,
-    // the most powerful of the five; the interpulse comes from the weaker second beam
+    alpha: 60, zeta: 61.3, geom: 'α ≈ 60° (неточно), ζ = 61,3°',
+    beamW: 0.24,
+    // the most powerful of the five; the interpulse comes 0.4 of a turn after the main pulse
     look: { core: 1.25, twist: 1.4, beamI: 1.25, beam2: 0.55, fieldExt: 0.9, fieldI: 1.1, surf: 1.15, caps: 0.8, tint: [0.86, 0.92, 1], surfTint: [0.62, 0.74, 1] },
-    comps: [[0, 0.007, 1.0], [0.4, 0.009, 0.55]], win: [-0.14, 0.56],
+    comps: [[0, 0.025, 1.0], [0.4, 0.025, 0.55]], win: [-0.12, 0.55],
+    // the nebula itself shines at ~900 Jy and floods the receiver; only giant pulses break through single-pulse noise
+    sci: { S: 14, tsys: 590, mod: 0.3, giant: { rate: 1, fmin: 3 } },
     env: [1, 0, 1, 0], nebA: [1.0, .46, .24], nebB: [.35, .5, 1.0],
-    // measured on a radio-telescope recording of the Crab: a steady buzz, 23 dB modulation, pulses vary only ~3 %
-    rec: { cv: 0.034, rms: 0.37,
-      M: [1000,999,985,914,797,630,509,522,685,755,670,591,583,599,586,595,577,500,506,642,792,874,851,731,587,451,355,261,195,157,152,156,156,229,464,650,694,718,550,501,403,394,358,329,416,522,598,565,475,512,593,648,619,535,440,355,265,190,164,180,169,132,125,121,159,230,305,329,307,269,299,372,452,470,413,326,265,228,208,170,137,139,147,143,125,124,148,171,169,147,133,147,175,194,200,168,141,107,87,73,68,66,67,72,80,83,111,128,127,206,418,663,753,820,828,666,635,596,565,597,782,850,924,934,899,867,952,962],
-      bands: [-120,-19,-120,-12,-13,-120,-21,-21,-120,-22,-15,-15,-18,-20,-21,-15,-16,-21,-21,-3,-10,-19,-9,-15,-9,0,-18,-7,-11,-18,-18,-11,-17,-10,-1,-8,-6,-17,-9,-19,-17,-16,-19,-9,-19,-17,-18,-15,-17,-22,-18,-18,-22,-19,-24,-19,-20,-23,-23,-25,-25,-28,-30,-30,-32,-32,-32,-33,-33,-34,-33,-33,-34,-35,-36,-37,-37,-37,-38,-38,-38,-40,-41,-41,-38,-37,-37,-36,-39,-37,-39,-42,-48,-47,-45,-47,-45,-49,-52,-51] },
-    desc: 'Её сверхновую 1054 года записали китайские астрономы: 23 дня звезду было видно даже днём. Энергия вращения пульсара заставляет светиться всю Крабовидную туманность.',
-    line: 'Тридцать оборотов в секунду. Дробь превращается в гул.' },
+    desc: 'Её сверхновую 1054 года записали китайские астрономы. Туманность вокруг сама ярко светит в радио и глушит приёмник шумом, сквозь который пробиваются гигантские импульсы.',
+    line: 'Тридцать оборотов в секунду. Сквозь шум туманности бьют гигантские импульсы.' },
   { key: 'J0437−4715', alias: 'Миллисекундный пульсар', P: 0.0057575, period: '5,757 мс', freq: '173,7 об/с', chip: '174 Гц', dist: '≈ 510 св. лет',
-    alpha: 12, beamW: 0.4,
+    alpha: 42, zeta: 136, geom: 'α ≈ 42°, ζ ≈ 136°',
+    beamW: 0.4,
     // millisecond pulsar: wide beams, a field thousands of times weaker, a compact magnetosphere wound tight,
     // a cold star with hot polar caps (seen in X-rays by NICER)
     look: { core: 1.6, twist: 2.0, beamI: 0.85, beam2: 1, fieldExt: 0.55, fieldI: 0.45, surf: 0.4, caps: 2.2, tint: [0.82, 0.86, 1], surfTint: [0.66, 0.7, 0.92] },
-    comps: [[-0.034, 0.016, 0.55], [0, 0.011, 1.0], [0.03, 0.018, 0.45]], win: [-0.15, 0.15],
+    comps: [[0, 0.0104, 1.0], [-0.045, 0.025, 0.25], [0.04, 0.03, 0.2]], win: [-0.15, 0.15],
+    sci: { S: 150, tsys: 21, mod: 0.4 },
     env: [0, 0, 0, 1], nebA: [1, .5, .3], nebB: [.3, .4, .8],
     desc: 'Ближайший к нам миллисекундный пульсар. Его раскрутило вещество, перетянутое с компаньона, белого карлика. По стабильности хода он спорит с атомными часами.',
     line: 'Сто семьдесят четыре оборота в секунду. Это уже нота, почти фа малой октавы.' },
-  { key: 'J1748−2446ad', alias: 'Шаровое скопление Терзан 5', P: 0.001396, period: '1,396 мс', freq: '716 об/с', chip: '716 Гц', dist: '≈ 19 000 св. лет',
-    alpha: 14, beamW: 0.5,
+  { key: 'J1748−2446ad', alias: 'Шаровое скопление Терзан 5', P: 0.001396, period: '1,396 мс', freq: '716 об/с', chip: '716 Гц', dist: '≈ 21 600 св. лет',
+    alpha: 45, zeta: null, geom: 'неизвестны',
+    beamW: 0.5,
     // fastest known: light cylinder only ~70 km out, the tightest spiral and the widest beams
     look: { core: 2.0, twist: 2.6, beamI: 0.8, beam2: 1, fieldExt: 0.42, fieldI: 0.4, surf: 0.45, caps: 2.0, tint: [0.84, 0.86, 1], surfTint: [0.66, 0.7, 0.92] },
     comps: [[0, 0.04, 1.0], [0.085, 0.03, 0.4]], win: [-0.3, 0.3],
+    // no catalogued flux: 0.1 mJy is an order-of-magnitude assumption for a very faint pulsar
+    sci: { S: 0.1, tsys: 21, mod: 0 },
     env: [0, 1, 0, 0], nebA: [1, .5, .3], nebB: [.3, .4, .8],
-    desc: 'Самый быстрый из известных пульсаров. Точка на его экваторе пролетает больше 50 000 км за секунду.',
-    line: 'Семьсот шестнадцать оборотов в секунду. Звезда поёт.' },
+    desc: 'Самый быстрый из известных пульсаров. Он настолько слаб, что одиночные импульсы тонут в шуме: его нашли, только сложив сигнал за много оборотов.',
+    line: 'Семьсот шестнадцать оборотов в секунду. Без свёртки слышен только шум.' },
 ];
 
-// how a radio recording renders a pulse, measured on B0329+54; pulsars may override it with their own `voice`
-const VOICE = { hold: 0.008, rel: 0.010, lp: 600, noise: 1, partials: [[200, 1, 0.016], [234, 0.8, 0.012], [316, 1.2, 0.009], [363, 1.6, 0.010]] };
-const voiceOf = p => p.voice || VOICE;
+// The telescope the sound is "recorded" with: Parkes 64 m, Parkes Multibeam Pulsar Survey receiver (Manchester et al. 2001)
+const SCOPE = { G: 0.735, bw: 288e6, ts: 250e-6 };
+
+// radiometer equation: noise per 250 µs sample, and the peak brightness of the average pulse, both in kelvin
+function signalLevels(p) {
+  const sigma = p.sci.tsys / Math.sqrt(2 * SCOPE.bw * SCOPE.ts);
+  let area = 0; for (const [, s, a] of p.comps) area += a * s * Math.sqrt(TAU);
+  let peak = 0; for (let x = -0.5; x < 0.5; x += 0.0005) peak = Math.max(peak, profileAt(p, x));
+  const tPeak = SCOPE.G * (p.sci.S / 1000) * (peak / area);
+  return { sigma, tPeak, snr: tPeak / sigma };
+}
 
 const profileAt = (p, x) => {
   let v = 0;
@@ -247,7 +270,8 @@ const profileAt = (p, x) => {
 const S_AXIS = [0, 1, 0];
 const X0 = [0, 0, 1];
 const Z0 = cross(X0, S_AXIS);
-const O_VIEW = norm(add(mul(S_AXIS, Math.cos(deg(78))), mul(X0, Math.sin(deg(78)))));
+// the camera sits 90 degrees in azimuth from the line to Earth (which lies along X0 at phase 0), so that line crosses the frame
+const O_VIEW = norm(add(mul(S_AXIS, Math.cos(deg(78))), mul(Z0, Math.sin(deg(78)))));
 const HOME = 3; // J0437−4715, where the intro lands
 
 const st = {
@@ -255,8 +279,8 @@ const st = {
   started: false, intro: false, playing: false, hidden: false,
   fade: 0.5, fadeTarget: 0.5, fadeTau: 1,
   blur: 1, tune: 0, tuneT: 9, plasmaT: 0, disp: 0, dispRate: 4.8, swirl: 0, spin: null,
-  vis: { alpha: deg(12), beamW: 0.4, look: JSON.parse(JSON.stringify(PULSARS[HOME].look)), env: [0, 0, 0, 1], nebA: [1, .5, .3], nebB: [.3, .4, .8] },
-  dist: 5.4, distT: 5.4, scope: false, yaw: 0, pitch: 0, dragging: false, driftT: 0,
+  vis: { alpha: deg(42), zeta: deg(136), earthOn: 1, beamW: 0.4, look: JSON.parse(JSON.stringify(PULSARS[HOME].look)), env: [0, 0, 0, 1], nebA: [1, .5, .3], nebB: [.3, .4, .8] },
+  dist: 5.4, distT: 5.4, scope: false, fold: false, yaw: 0, pitch: 0, dragging: false, driftT: 0,
   lastMove: performance.now(),
 };
 
@@ -281,7 +305,7 @@ const engine = {
   // retune a little ahead of the audio clock, never before an already scheduled change
   retune(f) {
     const t = Math.max(A.ctx.currentTime + 0.03, this.segs[this.segs.length - 1].t + 0.001);
-    this.setFreq(f, t); applyFreqMix(f, t);
+    this.setFreq(f, t); applyLevels(t);
   },
 };
 
@@ -289,7 +313,7 @@ const effScale = p => Math.max(st.timeScale, 0.3 * p.P);
 const effFreq = p => effScale(p) / p.P;
 
 // ---------- audio ----------
-const A = { ctx: null, osc: null, amps: new Map(), nextPulse: 0, scint: 1, nextScint: 0, nextFade: 0, lastSwell: -99, swellGap: 60 };
+const A = { ctx: null, osc: null, amps: new Map(), nextPulse: 0, scint: 1, nextScint: 0, lastSwell: -99, swellGap: 60 };
 
 function audioNow() {
   const ctx = A.ctx;
@@ -332,78 +356,39 @@ function makeIR(ctx, secs, decay) {
   return b;
 }
 
-function satCurve(drive) {
-  const n = 2048, c = new Float32Array(n);
-  for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; c[i] = Math.tanh(x * drive) / Math.tanh(drive); }
-  return c;
+// ---- the radio signal, audified ----
+// What a radio telescope records after removing dispersion is the detected intensity: receiver noise
+// (gaussian, sigma from the radiometer equation) plus the pulsar's pulses. Sampled every 250 µs and played
+// back in real time, that series is the sound. See RESEARCH.md for every number used.
+
+// a profile sampled at 250 µs: each gaussian is widened by the sample's boxcar, keeping its area
+function sampledComps(p) {
+  const q = SCOPE.ts / p.P;
+  return p.comps.map(([c, s, a]) => { const s2 = Math.sqrt(s * s + q * q / 12); return [c, s2, a * s / s2]; });
 }
 
-// Fourier series of a train of gaussian pulses, peak at phase 0
-function profileWave(ctx, comps) {
-  const N = 256, re = new Float32Array(N), im = new Float32Array(N);
+// the sampled profile as an exact Fourier series in kelvin per unit K (DC dropped: the receiver is AC-coupled)
+function pulseWave(ctx, comps) {
+  const smin = Math.min(...comps.map(c => c[1]));
+  const N = Math.min(2048, Math.ceil(5 / (TAU * smin)) + 2), re = new Float32Array(N), im = new Float32Array(N);
   for (let k = 1; k < N; k++) for (const [c, s, a] of comps) {
-    const e = a * Math.exp(-0.5 * (TAU * k * s) ** 2);
+    const e = 2 * a * s * Math.sqrt(TAU) * Math.exp(-0.5 * (TAU * k * s) ** 2);
     re[k] += e * Math.cos(TAU * k * c); im[k] += e * Math.sin(TAU * k * c);
   }
-  return ctx.createPeriodicWave(re, im, { disableNormalization: false });
+  return ctx.createPeriodicWave(re, im, { disableNormalization: true });
 }
 
-// ---- recorded voices: Vela and the Crab rebuilt from measurements of a radio-telescope recording ----
-// The recording is modelled as coloured noise times a modulation locked to the rotation:
-//   x(t) = C(t) · M(phase(t)) · a_pulse
-// M is the recording's RMS envelope folded over one period (128 points, peak at phase 0),
-// C has the recording's spectrum measured after dividing out M (1/12-octave bands from 50 Hz).
-function fftc(re, im, inv) {
-  const n = re.length;
-  for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
-  for (let len = 2; len <= n; len <<= 1) {
-    const a = (inv ? 2 : -2) * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
-    for (let i = 0; i < n; i += len) {
-      let cr = 1, ci = 0;
-      for (let j = 0; j < len / 2; j++) {
-        const k = i + j + len / 2, vr = re[k] * cr - im[k] * ci, vi = re[k] * ci + im[k] * cr;
-        re[k] = re[i + j] - vr; im[k] = im[i + j] - vi; re[i + j] += vr; im[i + j] += vi;
-        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
-      }
-    }
+// gaussian receiver noise drawn every 250 µs, smoothly interpolated up to the audio rate
+function receiverNoise(ctx, secs) {
+  const sr = ctx.sampleRate, n = Math.floor(sr * secs), m = Math.ceil(secs / SCOPE.ts) + 4;
+  const g = new Float32Array(m); for (let i = 0; i < m; i++) g[i] = gauss();
+  const b = ctx.createBuffer(1, n, sr), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) {
+    const x = i / sr / SCOPE.ts, k = Math.floor(x), t = x - k;
+    const p0 = g[k], p1 = g[k + 1], p2 = g[k + 2], p3 = g[k + 3];
+    d[i] = p1 + 0.5 * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)));
   }
-}
-
-// noise with the measured spectrum; the inverse FFT makes it exactly periodic, so it loops without a seam
-function colouredNoise(ctx, bandsDb) {
-  const sr = ctx.sampleRate; let N = 1; while (N < sr * 2.5) N <<= 1;
-  const b = bandsDb.map((v, i, arr) => {
-    if (v > -100) return v;
-    const l = arr.slice(0, i).reverse().find(x => x > -100), r = arr.slice(i + 1).find(x => x > -100);
-    return ((l ?? r) + (r ?? l)) / 2;
-  });
-  const re = new Float64Array(N), im = new Float64Array(N);
-  for (let k = 1; k < N / 2; k++) {
-    const f = k * sr / N, x = 12 * Math.log2(f / 50);
-    let db;
-    if (x < 0) db = b[0] + 2 * x;                       // below 50 Hz: roll off
-    else if (x >= b.length - 1) db = b[b.length - 1] - 1.5 * (x - b.length + 1);
-    else { const i = Math.floor(x), t = x - i; db = b[i] * (1 - t) + b[i + 1] * t; }
-    const mag = Math.pow(10, db / 20), ph = Math.random() * TAU;
-    re[k] = mag * Math.cos(ph); im[k] = mag * Math.sin(ph); re[N - k] = re[k]; im[N - k] = -im[k];
-  }
-  fftc(re, im, true);
-  let s = 0; for (let i = 0; i < N; i++) s += re[i] * re[i];
-  const g = 1 / Math.sqrt(s / N), buf = ctx.createBuffer(1, N, sr), d = buf.getChannelData(0);
-  for (let i = 0; i < N; i++) d[i] = re[i] * g;
-  return buf;
-}
-
-// the folded envelope as an exact (unnormalised) Fourier series; its mean goes in as a DC gain
-function modulationWave(ctx, M) {
-  const B = M.length, K = B / 2, re = new Float32Array(K), im = new Float32Array(K), m = M.map(v => v / 1000);
-  let dc = 0, ms = 0; for (const v of m) { dc += v; ms += v * v; } dc /= B; ms /= B;
-  for (let k = 1; k < K; k++) {
-    let a = 0, c = 0;
-    for (let q = 0; q < B; q++) { a += m[q] * Math.cos(TAU * k * q / B); c += m[q] * Math.sin(TAU * k * q / B); }
-    re[k] = 2 * a / B; im[k] = 2 * c / B;
-  }
-  return { wave: ctx.createPeriodicWave(re, im, { disableNormalization: true }), dc, rms: Math.sqrt(ms) };
+  return b;
 }
 
 function startAudio() {
@@ -425,7 +410,7 @@ function startAudio() {
   master.gain.setValueAtTime(0, now); master.gain.linearRampToValueAtTime(1, now + 2.5);
   A.out = out; A.master = master;
 
-  // reverb and the atmosphere layers can be switched off for the dry "telescope" sound
+  // reverb and the atmosphere layers can be switched off for the dry "telescope" sound; the signal itself stays dry
   const verb = ctx.createConvolver(); verb.buffer = makeIR(ctx, 7, 2.6);
   const verbIn = gain(1), verbHp = biq('highpass', 170, 0.5), verbOut = gain(0.9);
   verbIn.connect(verbHp); verbHp.connect(verb); verb.connect(verbOut); verbOut.connect(master);
@@ -438,57 +423,32 @@ function startAudio() {
 
   A.white = noiseBuffer(ctx, 5, 'white'); A.pink = noiseBuffer(ctx, 7, 'pink');
 
-  // The signal the way an observatory turns it into sound: the receiver output, i.e. steady noise
-  // whose power jumps with every pulse. Slow pulsars get a freshly synthesised buffer per pulse
-  // (playPulse), fast ones an oscillator whose waveform is the pulse profile.
-  A.mods = PULSARS.map(q => q.rec ? modulationWave(ctx, q.rec.M) : null);
-  A.waves = PULSARS.map((q, i) => A.mods[i] ? A.mods[i].wave : profileWave(ctx, q.comps));
-  const p = PULSARS[st.cur], f0 = effFreq(p);
-  const po = ctx.createOscillator(); po.setPeriodicWave(A.waves[st.cur]); po.frequency.value = f0; A.osc = po;
-  const vca = gain(0); loop(A.white).connect(vca); po.connect(vca.gain);
-  const nGain = gain(0.55); vca.connect(nGain);
-  const toneLp = biq('lowpass', 3200, 0.3), toneGain = gain(0);
-  po.connect(toneLp); toneLp.connect(toneGain);
-  const oscMix = gain(0); nGain.connect(oscMix); toneGain.connect(oscMix);
-  const pAmp = gain(1); oscMix.connect(pAmp);
-  A.bufIn = gain(1);
-  const scint = gain(1); pAmp.connect(scint); A.bufIn.connect(scint);
-  // measured on real recordings: the pulse energy sits at ~150-450 Hz (peaks near 200 and 360 Hz)
-  // and falls off steeply above ~1 kHz, so the chain is a dark, slightly resonant band
-  const bandHp = biq('highpass', 100, 0.7), body = biq('peaking', 300, 1.0), bandLp = biq('lowpass', 600, 0.7), bandLp2 = biq('lowpass', 1800, 0.7);
-  body.gain.value = 4;
-  scint.connect(bandHp); bandHp.connect(body); body.connect(bandLp); bandLp.connect(bandLp2);
-  const pMute = gain(0); bandLp2.connect(pMute);
-  A.bandLp = bandLp; A.bandLp2 = bandLp2;
-  // continuous receiver noise coloured by the same chain as the pulses (dense in the Vela recording)
-  { const fHp = biq('highpass', 150, 0.7), fLp = biq('lowpass', 1100, 0.7);
-    A.floor = gain(0); loop(A.pink, 2.2).connect(fHp); fHp.connect(fLp); fLp.connect(A.floor); A.floor.connect(bandHp); }
-  A.pulseIn = gain(1); A.pulseIn.connect(pMute);
-  { const g = gain(0.95); pMute.connect(g); g.connect(master); }
-  A.pWet = gain(0.4); pMute.connect(A.pWet); A.pWet.connect(verbIn);
-  Object.assign(A, { pAmp, pMute, toneGain, oscMix, fade: scint });
-
-  // recorded voices: their own coloured noise, gated by the shared rotation oscillator, straight to the output
-  A.recVca = gain(0); A.recDepth = gain(0); po.connect(A.recDepth); A.recDepth.connect(A.recVca.gain);
-  A.recAmp = gain(1); A.recOut = gain(0); A.recVca.connect(A.recAmp); A.recAmp.connect(A.recOut); A.recOut.connect(pMute);
-  A.recSrc = PULSARS.map(q => {
-    if (!q.rec) return null;
-    const g = gain(0); loop(colouredNoise(ctx, q.rec.bands), Math.random() * 2).connect(g); g.connect(A.recVca); return g;
+  // per pulsar: the 250 µs-sampled profile, its waveform, and levels from the radiometer equation
+  A.shapes = PULSARS.map(sampledComps);
+  A.waves = A.shapes.map(c => pulseWave(ctx, c));
+  A.lv = PULSARS.map((p, i) => {
+    const L = signalLevels(p);
+    let area = 0; for (const [, s, a] of p.comps) area += a * s * Math.sqrt(TAU);
+    const K = SCOPE.G * (p.sci.S / 1000) / area;              // kelvin per unit of profile
+    let peak = 0; for (let x = -0.5; x < 0.5; x += 0.0002) { let v = 0; for (const [c, s, a] of A.shapes[i]) { let dd = x - c; dd -= Math.round(dd); v += a * Math.exp(-0.5 * (dd / s) ** 2); } peak = Math.max(peak, v); }
+    return { K, sigma: L.sigma, tPeak: K * peak };
   });
 
-  const shaper = ctx.createWaveShaper(); shaper.curve = satCurve(2.6); shaper.oversample = '2x';
-  A.thumpIn = gain(1); const thumpOut = gain(0.6);
-  A.thumpIn.connect(shaper); shaper.connect(thumpOut); thumpOut.connect(A.pulseIn);
+  // signal sum: receiver noise + pulses (an oscillator for fast rotation, per-pulse buffers for slow) -> 2 kHz -> AC coupling
+  const sum = gain(1); A.sum = sum;
+  A.noiseG = gain(0); loop(receiverNoise(ctx, 6), Math.random() * 5).connect(A.noiseG); A.noiseG.connect(sum);
+  const p = PULSARS[st.cur], f0 = effFreq(p);
+  const po = ctx.createOscillator(); po.setPeriodicWave(A.waves[st.cur]); po.frequency.value = f0; A.osc = po;
+  A.oscG = gain(0); A.pAmp = gain(1); po.connect(A.oscG); A.oscG.connect(A.pAmp); A.pAmp.connect(sum);
+  A.bufIn = gain(1); A.bufG = gain(0); A.bufIn.connect(A.bufG); A.bufG.connect(sum);
+  const lp1 = biq('lowpass', 2000, 0.707), lp2 = biq('lowpass', 2000, 0.707), dc = biq('highpass', 20, 0.707);
+  sum.connect(lp1); lp1.connect(lp2); lp2.connect(dc);
+  A.pMute = gain(0); dc.connect(A.pMute);
+  { const g = gain(0.95); A.pMute.connect(g); g.connect(master); }
 
   const t0 = now + 0.15;
   po.start(t0);
   engine.segs = [{ t: t0, phase: 0, f: f0 }];
-  applyFreqMix(f0, now);
-
-  // receiver noise, always there underneath the pulses
-  { const hp = biq('highpass', 120, 0.5), lp = biq('lowpass', 1000, 0.7);
-    A.hiss = gain(0.016); A.hissLp = lp;
-    loop(A.white, 1.3).connect(hp); hp.connect(lp); lp.connect(A.hiss); A.hiss.connect(master); }
 
   // slow interstellar wind, stereo
   for (let ch = 0; ch < 2; ch++) {
@@ -536,113 +496,63 @@ function startAudio() {
 
 function volCurve() { return st.muted ? 0 : st.vol * st.vol * 1.15; }
 
-function applyFreqMix(f, t) {
-  if (!A.ctx) return;
-  const rec = !!PULSARS[st.cur].rec;
-  A.toneGain.gain.setTargetAtTime(0.5 * smooth(12, 80, f), t, 0.2);
-  A.oscMix.gain.setTargetAtTime(rec ? 0 : smooth(10, 20, f), t, 0.15);
-}
-
-// "telescope": dry receiver output, louder noise floor, no music and no reverb
+// "telescope": the signal alone, no music and no reverb
 function applyMode() {
   if (!A.ctx) return;
   const t = A.ctx.currentTime, s = st.scope;
   A.atmoBus.gain.setTargetAtTime(s ? 0 : 1, t, 0.5);
   A.verbOut.gain.setTargetAtTime(s ? 0 : 0.9, t, 0.4);
-  applyVoice(t);
+  applyLevels(t);
 }
 
-// each recording has its own band and noise floor
-function applyVoice(t) {
+// Loudness follows the physics: the brightest thing (pulse peak, or 4 sigma of noise) is set to the same
+// level, so the ratio of pulses to noise is the real signal-to-noise ratio of this telescope.
+// Folding an hour of data averages N = 3600/P turns and lowers the noise by sqrt(N).
+function applyLevels(t) {
   if (!A.ctx) return;
-  const v = voiceOf(PULSARS[st.cur]);
-  A.bandLp.frequency.setTargetAtTime(v.lp, t, 0.1);
-  A.bandLp2.frequency.setTargetAtTime(Math.max(1800, v.lp * 2), t, 0.1);
-  A.hissLp.frequency.setTargetAtTime(v.hissLp || Math.max(1000, v.lp), t, 0.1);
-  // a recorded voice already carries its own receiver noise
-  const i = st.cur, rec = PULSARS[i].rec, mod = A.mods[i];
-  A.hiss.gain.setTargetAtTime(rec ? 0 : (st.scope ? 0.16 : 0.016) * v.noise, t, 0.3);
-  A.floor.gain.setTargetAtTime(rec ? 0 : (v.floor || 0) * (st.scope ? 1 : 0.45), t, 0.3);
-  A.recSrc.forEach((g, k) => g && g.gain.setTargetAtTime(k === i ? 1 : 0, t, 0.05));
-  A.recVca.gain.setTargetAtTime(rec ? mod.dc : 0, t, 0.05);
-  A.recDepth.gain.setTargetAtTime(rec ? 1 : 0, t, 0.05);
-  A.recOut.gain.setTargetAtTime(rec ? rec.rms / mod.rms / 0.95 : 0, t, 0.05);
-  A.pWet.gain.setTargetAtTime(rec ? 0.1 : 0.4, t, 0.3);
-  applyFreqMix(engine.freqAt(t), t);
+  const p = PULSARS[st.cur], L = A.lv[st.cur], f = engine.freqAt(t);
+  const sigma = st.fold ? L.sigma / Math.sqrt(3600 / p.P) : L.sigma;
+  const s = 0.7 / Math.max(L.tPeak, 4 * sigma);
+  const w = st.fold ? 0 : 1 - smooth(10, 20, f);   // separate pulses below ~15 turns per second
+  A.noiseG.gain.setTargetAtTime(s * sigma, t, 0.15);
+  A.bufG.gain.setTargetAtTime(s * L.K * w, t, 0.1);
+  A.oscG.gain.setTargetAtTime(s * L.K * (1 - w), t, 0.1);
+  if (st.fold) { A.pAmp.gain.cancelScheduledValues(t); A.pAmp.gain.setTargetAtTime(1, t, 0.05); }
+  A.scale = s;
 }
 
-// one pulse as the receiver records it: noise whose power follows the pulse envelope, plus the envelope itself
-function playPulse(p, n, tp, f, amp, giant) {
-  const ctx = A.ctx, sr = ctx.sampleRate, P = 1 / f;
-  const comps = giant
-    ? [[p.comps[0][0], p.comps[0][1] * 0.4, 1]]
-    : p.comps.map(([c, s, a]) => [c + gauss() * s * 0.25, s * (0.85 + 0.3 * Math.random()), a * Math.exp(gauss() * 0.3)]);
+// one pulse in kelvin units of the profile: the sampled profile, its energy for this turn, and drifting subpulses
+function playPulse(p, n, tp, f, amp) {
+  const ctx = A.ctx, sr = ctx.sampleRate, P = 1 / f, comps = A.shapes[st.cur];
   let lo = Infinity, hi = -Infinity;
   for (const [c, s] of comps) { lo = Math.min(lo, c - 5 * s); hi = Math.max(hi, c + 5 * s); }
-  // the "thud" a radio recording makes: the receiver chain rings at ~200 and ~360 Hz after each pulse
-  const pk = comps.reduce((m, c) => (c[2] > m[2] ? c : m))[0];
-  const popA = giant ? 0 : (p.pop ?? 0.6) * Math.min(amp, 1.6) * 0.3;
-  const t0 = (pk - lo) * P, tail = Math.ceil(0.09 * sr);
-  const len = Math.min(Math.max(Math.ceil((hi - lo) * P * sr), Math.ceil(t0 * sr)) + tail, sr * 2);
-  if (len < 8 || tp + lo * P < ctx.currentTime) return;
-  // structure inside a single pulse: drifting subpulses for B1919+21, random bright spikes for the rest
+  const len = Math.min(Math.ceil((hi - lo) * P * sr), sr * 2);
+  if (len < 4 || tp + lo * P < ctx.currentTime) return;
   const subs = [];
   if (p.drift) { const off = (n * p.drift.rate) % p.drift.spacing; for (let k = -4; k <= 4; k++) subs.push([k * p.drift.spacing + off, p.drift.width]); }
-  else if (!giant) { const m = 3 + (Math.random() * 4 | 0); for (let k = 0; k < m; k++) { const [c, s] = comps[Math.random() * comps.length | 0]; subs.push([c + gauss() * s, s * 0.3]); } }
   const buf = ctx.createBuffer(1, len, sr), d = buf.getChannelData(0), dx = 1 / (P * sr);
-  // the recorded envelope: instant rise, a short hold, then a fall (B0329+54: 8 ms and 10 ms), even for sub-millisecond pulses
-  const v = voiceOf(p);
-  const hold = Math.round(v.hold * sr), rel = Math.exp(-1 / (v.rel * sr));
-  let y = 0, hc = 0;
   for (let i = 0; i < len; i++) {
     const x = lo + i * dx;
-    let e = 0;
-    if (x <= hi) {
-      for (const [c, s, a] of comps) e += a * Math.exp(-0.5 * ((x - c) / s) ** 2);
-      if (subs.length) { let sub = 0; for (const [c, s] of subs) sub += Math.exp(-0.5 * ((x - c) / s) ** 2); e *= 0.35 + 0.9 * Math.min(sub, 1.5); }
-      e *= amp;
-    }
-    if (e >= y) { y = e; hc = hold; } else if (hc > 0) hc--; else y *= rel;
-    d[i] = (Math.random() * 2 - 1) * 1.7 * Math.sqrt(y) * 0.3 + y * 0.12;
-    const t = i / sr - t0;
-    if (popA && t >= 0) {
-      let ring = 0;
-      for (const [fr, a, tau] of v.partials) ring += a * Math.sin(TAU * fr * t) * Math.exp(-t / tau);
-      d[i] += popA * (1 - Math.exp(-t / 0.001)) * ring;
-    }
+    let e = 0; for (const [c, s, a] of comps) e += a * Math.exp(-0.5 * ((x - c) / s) ** 2);
+    if (subs.length) { let sub = 0; for (const [c, s] of subs) sub += Math.exp(-0.5 * ((x - c) / s) ** 2); e *= 0.35 + 0.9 * Math.min(sub, 1.5); }
+    d[i] = e * amp;
   }
   const s = ctx.createBufferSource(); s.buffer = buf; s.connect(A.bufIn); s.start(tp + lo * P);
 }
 
+// a Crab giant pulse: fluence from a power law (differential index -3), one 250 µs sample wide, at the main or inter pulse
+function giantPulse(p, n, f) {
+  const g = p.sci.giant, F = g.fmin * Math.pow(1 - Math.random(), -1 / 2);   // Jy ms
+  const T = SCOPE.G * F / (SCOPE.ts * 1000);                                     // kelvin over one sample
+  const amp = Math.min(4, A.scale * T), c = Math.random() < 0.7 ? p.comps[0][0] : p.comps[1][0];
+  const ctx = A.ctx, sr = ctx.sampleRate, w = Math.max(2, Math.round(SCOPE.ts / effScale(p) * sr));
+  const t = engine.timeOfPhase(n + c);
+  if (t < ctx.currentTime + 0.01) return;
+  const buf = ctx.createBuffer(1, w, sr); buf.getChannelData(0).fill(amp);
+  const s = ctx.createBufferSource(); s.buffer = buf; s.connect(A.sum); s.start(t);
+}
+
 function setMute(m) { st.muted = m; if (A.ctx) A.out.gain.setTargetAtTime(volCurve(), A.ctx.currentTime, 0.05); }
-
-function thump(t, a) {
-  if (a < 0.02) return;
-  const ctx = A.ctx, o = ctx.createOscillator(), g = ctx.createGain();
-  o.frequency.setValueAtTime(115, t - 0.003); o.frequency.exponentialRampToValueAtTime(38, t + 0.2);
-  g.gain.setValueAtTime(0, t - 0.003); g.gain.linearRampToValueAtTime(a, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0006, t + 1.25);
-  o.connect(g); g.connect(A.thumpIn); o.start(t - 0.003); o.stop(t + 1.3);
-}
-
-// dispersion: the interstellar plasma delays low radio frequencies, so each pulse sweeps downward
-function chirp(t, a) {
-  if (a < 0.02) return;
-  const ctx = A.ctx, s = ctx.createBufferSource(), bp = A.biq('bandpass', 7000, 9), g = ctx.createGain(), pn = ctx.createStereoPanner();
-  s.buffer = A.white; pn.pan.value = (Math.random() - 0.5) * 0.4;
-  bp.frequency.setValueAtTime(7000, t - 0.06); bp.frequency.exponentialRampToValueAtTime(240, t + 0.02);
-  g.gain.setValueAtTime(0, t - 0.06); g.gain.linearRampToValueAtTime(a * 2.6, t - 0.055); g.gain.setTargetAtTime(0, t - 0.01, 0.02);
-  s.connect(bp); bp.connect(g); g.connect(pn); pn.connect(A.pulseIn);
-  s.start(t - 0.06, Math.random() * 4); s.stop(t + 0.16);
-}
-
-function crackle(t) {
-  const ctx = A.ctx, s = ctx.createBufferSource(), hp = A.biq('highpass', 2200, 0.7), g = ctx.createGain(), pn = ctx.createStereoPanner();
-  s.buffer = A.white; pn.pan.value = Math.random() * 1.6 - 0.8;
-  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05 + Math.random() * 0.1, t + 0.0005);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.004 + Math.random() * 0.01);
-  s.connect(hp); hp.connect(g); g.connect(pn); pn.connect(A.master);
-  s.start(t, Math.random() * 4); s.stop(t + 0.03);
-}
 
 function swell(t, peak = 0.3, rise = 9, hold = 6, fall = 12) {
   const g = A.choir.gain;
@@ -668,64 +578,31 @@ function tuneSweep(t) {
 }
 
 function pulseEvent(n, tp, f) {
-  const p = PULSARS[st.cur];
-  if (p.rec) {
-    // recorded voice: only the measured pulse-to-pulse spread, set in the quiet part of the period
-    const a = clamp(Math.exp(gauss() * p.rec.cv), 0.4, 1.8);
-    A.amps.set(n, a);
-    if (A.amps.size > 96) A.amps.delete(A.amps.keys().next().value);
-    A.recAmp.gain.setValueAtTime(a, Math.max(A.ctx.currentTime, tp - 0.25 / f));
-    return;
-  }
-  let amp = 0.8 * Math.exp(gauss() * (p.jitter ?? 0.35)); // pulse energies scatter roughly log-normally
-  if (st.cur === 0 && Math.random() < 0.05) amp = 0.04; // B1919+21 sometimes skips a pulse (nulling)
-  const giant = !!p.giant && Math.random() < p.giant;
-  if (giant) amp *= 6 + 6 * Math.random();
-  A.amps.set(n, Math.min(amp, 1.6));
+  const p = PULSARS[st.cur], m = p.sci.mod;
+  const a = m ? Math.exp(gauss() * m - m * m / 2) : 1;   // log-normal pulse energy, mean 1
+  A.amps.set(n, Math.min(a, 2));
   if (A.amps.size > 96) A.amps.delete(A.amps.keys().next().value);
-  A.pAmp.gain.setValueAtTime(Math.min(amp, 1.6), Math.max(A.ctx.currentTime, tp - Math.min(0.3 / f, 0.25)));
-  const w = 1 - smooth(10, 20, f);
-  if (w > 0.01) playPulse(p, n, tp, f, amp * w, giant);
-  if (!st.scope) {
-    const a = Math.min(amp, 1.2);
-    chirp(tp, a * smooth(15, 3, f));
-    thump(tp, a * (1 - smooth(2.2, 4, f)));
-  }
+  if (st.fold) return;                                    // a folded profile is the same every turn
+  if (f < 20) playPulse(p, n, tp, f, a);
+  if (f >= 10 && m) A.pAmp.gain.setValueAtTime(a, Math.max(A.ctx.currentTime, tp - 0.3 / f));
+  if (p.sci.giant && Math.random() < p.sci.giant.rate * p.P) giantPulse(p, n, f);
 }
 
 function schedule() {
   const ctx = A.ctx; if (!ctx) return;
   const p = PULSARS[st.cur], now = ctx.currentTime, f = engine.freqAt(now + 0.2);
-  // interstellar scintillation: the signal slowly fades and swells over seconds
-  if (now > A.nextFade) {
-    A.fade.gain.setTargetAtTime(clamp(Math.exp(gauss() * 0.35), 0.4, 1.6), now, 0.8);
-    A.nextFade = now + 1.5 + Math.random() * 3;
-  }
-  if (f < 20 || (p.rec && f < 80)) {
-    const lead = Math.max(0.065, ...p.comps.map(([c, s]) => (5 * s - c) / f));
-    const horizon = now + 0.2 + lead;
+  if (f < 250) {
+    const lead = Math.max(0.03, ...A.shapes[st.cur].map(([c, s]) => (5 * s - c) / f));
+    const horizon = now + 0.15 + lead;
     let n = Math.max(A.nextPulse, Math.ceil(engine.phaseAt(now + 0.01)));
-    for (let guard = 0; guard < 40; guard++) {
+    for (let guard = 0; guard < 60; guard++) {
       const tp = engine.timeOfPhase(n);
       if (tp > horizon) break;
-      if (tp - lead > now + 0.02) pulseEvent(n, tp, engine.freqAt(tp));
+      if (tp - lead > now + 0.01) pulseEvent(n, tp, engine.freqAt(tp));
       n++;
     }
     A.nextPulse = n;
-  } else {
-    A.nextPulse = Math.ceil(engine.phaseAt(now + 0.2));
-    if (now > A.nextScint) {
-      A.scint = 0.6 + 0.55 * Math.random();
-      A.pAmp.gain.setTargetAtTime(A.scint, now + 0.05, 0.07);
-      A.nextScint = now + 0.12 + Math.random() * 0.1;
-    }
-    // the Crab's giant pulses: a single turn now and then is many times brighter than the rest
-    if (p.giant && Math.random() < p.giant * f * 0.025) {
-      const n = Math.ceil(engine.phaseAt(now + 0.08));
-      playPulse(p, n, engine.timeOfPhase(n), f, 0.8 * (6 + 6 * Math.random()), true);
-    }
-  }
-  if (Math.random() < 0.05) crackle(now + 0.05 + Math.random() * 0.12);
+  } else A.nextPulse = Math.ceil(engine.phaseAt(now + 0.2));
   if (st.playing && now - A.lastSwell > A.swellGap) swell(now + 0.1, 0.2 + Math.random() * 0.12);
 }
 
@@ -766,6 +643,8 @@ uniform float uSinA, uCosA, uTwist, uBeamLen;
 uniform float uCore, uBeam2, uFieldExt, uFieldI, uSurf, uCaps;
 uniform vec3 uBeamTint, uSurfTint;
 uniform vec2 uSwirl;
+uniform vec3 uEarth;
+uniform float uEarthOn;
 uniform vec4 uEnv;
 uniform vec3 uNebA, uNebB, uGal, uGalC, uClusterDir, uCompPos;
 uniform sampler3D uNoise;
@@ -930,6 +809,19 @@ vec3 beams(vec3 ro, vec3 rd, float tMax, float pix){
   return col * uBeamI;
 }
 
+// the line of sight to Earth: a pulse is heard when a beam sweeps across it
+float earthLine(vec3 ro, vec3 rd, float tMax, float pix){
+  vec3 A = uEarth*0.3, e = uEarth*4.2, w0 = ro - A;
+  float a = dot(e,e), b = dot(rd,e), dd = dot(rd,w0), ee = dot(e,w0), den = a - b*b;
+  float u = den > 1e-8 ? clamp((ee - dd*b)/den, 0.0, 1.0) : 0.0;
+  float t = max(u*b - dd, 0.0);
+  u = clamp(dot(ro + rd*t - A, e)/a, 0.0, 1.0);
+  if(t > tMax) return 0.0;
+  vec3 q = ro + rd*t - (A + e*u);
+  float w = max(0.005, pix*t*0.8), s = 0.3 + u*4.2;
+  return exp(-dot(q,q)/(w*w)) * step(0.45, fract(s*3.0)) * smoothstep(4.5, 2.5, s);
+}
+
 float hitSphere(vec3 ro, vec3 rd, float rad){ float b = dot(ro,rd), c = dot(ro,ro) - rad*rad, h = b*b - c; return h < 0.0 ? -1.0 : -b - sqrt(h); }
 
 void main(){
@@ -974,6 +866,7 @@ void main(){
   float tEnd = tHit < 0.0 ? 1e4 : tHit;
   col += volume(ro, rd, tEnd, jit);
   col += beams(ro, rd, tEnd, pix);
+  if(uEarthOn > 0.01) col += vec3(0.7,0.82,1.0) * earthLine(ro, rd, tEnd, pix) * 0.4 * uEarthOn;
   outColor = vec4(col * uFade * uHdr, 1.0);
 }`;
 
@@ -1290,6 +1183,11 @@ PULSARS.forEach((p, i) => {
 function updateHUD(p) {
   $('#alias').textContent = p.alias; $('#pname').textContent = p.key;
   $('#rPeriod').textContent = p.period; $('#rFreq').textContent = p.freq; $('#rDist').textContent = p.dist;
+  $('#rGeom').textContent = p.geom;
+  // peak signal-to-noise of one 250 µs sample on the Parkes multibeam receiver, or after folding an hour
+  const snr = signalLevels(p).snr * (st.fold ? Math.sqrt(3600 / p.P) : 1);
+  const num = snr >= 10 ? Math.round(snr).toLocaleString('ru-RU') : snr.toLocaleString('ru-RU', { maximumFractionDigits: snr < 0.1 ? 3 : 1 });
+  $('#rSnr').textContent = `≈ ${num}${st.fold ? ' после свёртки' : snr < 1 ? ', тонет в шуме' : ''}`;
   $('#pdesc').textContent = p.desc;
   picker.querySelectorAll('.pk').forEach((b, i) => b.setAttribute('aria-current', i === st.cur ? 'true' : 'false'));
 }
@@ -1317,7 +1215,8 @@ function selectPulsar(i) {
     g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0, t + 0.3);
     tuneSweep(t + 0.04);
     const tSwap = t + 0.65;
-    engine.setFreq(f, tSwap); applyFreqMix(f, tSwap); applyVoice(tSwap);
+    engine.setFreq(f, tSwap);
+    setTimeout(() => applyLevels(A.ctx.currentTime), 660); // levels from the state at swap time (fold may change meanwhile)
     setTimeout(() => A.osc.setPeriodicWave(A.waves[i]), 640);
     g.setValueAtTime(0, tSwap + 0.15); g.linearRampToValueAtTime(1, tSwap + 1.6);
     A.nextPulse = 0;
@@ -1358,6 +1257,16 @@ function setScope(v) {
 }
 mAtmo.addEventListener('click', () => setScope(false));
 mScope.addEventListener('click', () => setScope(true));
+
+const sRaw = $('#sRaw'), sFold = $('#sFold');
+function setFold(v) {
+  st.fold = v;
+  sRaw.setAttribute('aria-pressed', v ? 'false' : 'true'); sFold.setAttribute('aria-pressed', v ? 'true' : 'false');
+  updateHUD(PULSARS[st.cur]);
+  if (A.ctx) applyLevels(A.ctx.currentTime);
+}
+sRaw.addEventListener('click', () => setFold(false));
+sFold.addEventListener('click', () => setFold(true));
 
 const ZOOM_MIN = 2.6, ZOOM_MAX = 18;
 const zoomBy = k => { st.distT = clamp(st.distT * k, ZOOM_MIN, ZOOM_MAX); };
@@ -1429,7 +1338,7 @@ function spinUp(to, dur) {
   const t = A.ctx.currentTime;
   st.spin = { t0: t, dur, f0: engine.freqAt(t), to, swapped: false, next: 0 };
   st.cur = to;
-  applyVoice(t);
+  applyLevels(t);
   swell(t + 0.2, 0.6, 9, 7, 14);
 }
 function driveSpin(nowMs) {
@@ -1445,7 +1354,7 @@ function driveSpin(nowMs) {
 function landHome() {
   st.spin = null; st.cur = HOME;
   if (!A.ctx) return;
-  applyVoice(A.ctx.currentTime);
+  applyLevels(A.ctx.currentTime);
   engine.retune(effFreq(PULSARS[HOME]));
   A.osc.setPeriodicWave(A.waves[HOME]);
 }
@@ -1503,6 +1412,8 @@ function frame(nowMs) {
   // ease scene parameters toward the selected pulsar
   const k = 1 - Math.exp(-dt / 0.7);
   vis.alpha += (deg(p.alpha) - vis.alpha) * k;
+  if (p.zeta != null) vis.zeta += (deg(p.zeta) - vis.zeta) * k;
+  vis.earthOn += ((p.zeta != null ? 1 : 0) - vis.earthOn) * k;
   vis.beamW += (p.beamW - vis.beamW) * k;
   for (let i = 0; i < 4; i++) vis.env[i] += (p.env[i] - vis.env[i]) * k;
   for (let i = 0; i < 3; i++) { vis.nebA[i] += (p.nebA[i] - vis.nebA[i]) * k; vis.nebB[i] += (p.nebB[i] - vis.nebB[i]) * k; }
@@ -1589,6 +1500,7 @@ function frame(nowMs) {
     uM1: m1, uM2: m2, uMe1: me1, uMe2: me2,
     uA1: a1, uA2: a2, uDuty1: duty(a1), uDuty2: duty(a2),
     uBeamW: vis.beamW, uBlur: st.blur, uBeamI: beamI,
+    uEarth: norm(add(mul(S_AXIS, Math.cos(vis.zeta)), mul(X0, Math.sin(vis.zeta)))), uEarthOn: vis.earthOn,
     uSinA: sa, uCosA: ca, uTwist: L.twist, uCore: L.core, uBeam2: L.beam2, uFieldExt: L.fieldExt, uFieldI: L.fieldI,
     uSurf: L.surf, uCaps: L.caps, uBeamTint: L.tint, uSurfTint: L.surfTint, uBeamLen: clamp(4.6 + (st.dist - 5.4) * 0.5, 4.6, 9), uSwirl: [Math.cos(st.swirl), Math.sin(st.swirl)],
     uFade: st.fade, uHdr: G.fmt.hdr,
