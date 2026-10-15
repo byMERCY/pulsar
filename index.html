@@ -432,7 +432,7 @@ function startAudio() {
     let area = 0; for (const [, s, a] of p.comps) area += a * s * Math.sqrt(TAU);
     const K = SCOPE.G * (p.sci.S / 1000) / area;              // kelvin per unit of profile
     let peak = 0; for (let x = -0.5; x < 0.5; x += 0.0002) { let v = 0; for (const [c, s, a] of A.shapes[i]) { let dd = x - c; dd -= Math.round(dd); v += a * Math.exp(-0.5 * (dd / s) ** 2); } peak = Math.max(peak, v); }
-    return { K, sigma: L.sigma, tPeak: K * peak };
+    return { K, sigma: L.sigma, tPeak: K * peak, oscPeak: Math.max(0.05, peak - area) };
   });
 
   // signal sum: receiver noise + pulses (an oscillator for fast rotation, per-pulse buffers for slow) -> 2 kHz -> AC coupling
@@ -446,6 +446,11 @@ function startAudio() {
   sum.connect(lp1); lp1.connect(lp2); lp2.connect(dc);
   A.pMute = gain(0); dc.connect(A.pMute);
   { const g = gain(0.95); A.pMute.connect(g); g.connect(master); }
+
+  // "With atmosphere" adds an electronic voice on top of the signal: a falling "pew" on every slow pulse,
+  // and the pulse train itself as a tone once the pulses blur into one
+  A.vox = gain(1); A.vox.connect(A.pMute); { const g = gain(0.35); A.vox.connect(g); g.connect(verbIn); }
+  A.toneG = gain(0); { const lp = biq('lowpass', 3200, 0.5); po.connect(lp); lp.connect(A.toneG); A.toneG.connect(A.vox); }
 
   const t0 = now + 0.15;
   po.start(t0);
@@ -515,7 +520,8 @@ function applyLevels(t) {
   const sigma = st.fold ? L.sigma / Math.sqrt(3600 / p.P) : L.sigma;
   const s = 0.7 / Math.max(L.tPeak, 4 * sigma);
   const w = st.fold ? 0 : 1 - smooth(10, 20, f);   // separate pulses below ~15 turns per second
-  A.noiseG.gain.setTargetAtTime(s * sigma, t, 0.15);
+  A.noiseG.gain.setTargetAtTime(s * sigma * (st.scope ? 1 : 0.3), t, 0.15);
+  A.toneG.gain.setTargetAtTime(st.scope ? 0 : 0.3 * smooth(12, 60, f) / L.oscPeak, t, 0.2);
   A.bufG.gain.setTargetAtTime(s * L.K * w, t, 0.1);
   A.oscG.gain.setTargetAtTime(s * L.K * (1 - w), t, 0.1);
   if (st.fold) { A.pAmp.gain.cancelScheduledValues(t); A.pAmp.gain.setTargetAtTime(1, t, 0.05); }
@@ -553,6 +559,20 @@ function giantPulse(p, n, f) {
   const s = ctx.createBufferSource(); s.buffer = buf; s.connect(A.sum); s.start(t);
 }
 
+// the "pew": a falling whistle on each pulse, a nod to how dispersion sweeps a radio pulse from high to low frequency
+function chirp(t, a) {
+  if (a < 0.02) return;
+  const ctx = A.ctx, s = ctx.createBufferSource(), bp = A.biq('bandpass', 7000, 9), g = ctx.createGain(), pn = ctx.createStereoPanner();
+  const o = ctx.createOscillator(), og = ctx.createGain();
+  s.buffer = A.white; pn.pan.value = (Math.random() - 0.5) * 0.4;
+  bp.frequency.setValueAtTime(7000, t - 0.06); bp.frequency.exponentialRampToValueAtTime(240, t + 0.02);
+  g.gain.setValueAtTime(0, t - 0.06); g.gain.linearRampToValueAtTime(a * 2.6, t - 0.055); g.gain.setTargetAtTime(0, t - 0.01, 0.02);
+  o.frequency.setValueAtTime(2600, t - 0.06); o.frequency.exponentialRampToValueAtTime(380, t + 0.04);
+  og.gain.setValueAtTime(0, t - 0.06); og.gain.linearRampToValueAtTime(a * 0.12, t - 0.055); og.gain.setTargetAtTime(0, t, 0.03);
+  s.connect(bp); bp.connect(g); g.connect(pn); o.connect(og); og.connect(pn); pn.connect(A.vox);
+  s.start(t - 0.06, Math.random() * 4); s.stop(t + 0.16); o.start(t - 0.06); o.stop(t + 0.2);
+}
+
 function setMute(m) { st.muted = m; if (A.ctx) A.out.gain.setTargetAtTime(volCurve(), A.ctx.currentTime, 0.05); }
 
 function swell(t, peak = 0.3, rise = 9, hold = 6, fall = 12) {
@@ -583,6 +603,7 @@ function pulseEvent(n, tp, f) {
   const a = m ? Math.exp(gauss() * m - m * m / 2) : 1;   // log-normal pulse energy, mean 1
   A.amps.set(n, Math.min(a, 2));
   if (A.amps.size > 96) A.amps.delete(A.amps.keys().next().value);
+  if (!st.scope) chirp(tp, Math.min(a, 1.4) * smooth(15, 3, f) * 0.8);
   if (st.fold) return;                                    // a folded profile is the same every turn
   if (f < 20) playPulse(p, n, tp, f, a);
   if (f >= 10 && m) A.pAmp.gain.setValueAtTime(a, Math.max(A.ctx.currentTime, tp - 0.3 / f));
@@ -593,7 +614,7 @@ function schedule() {
   const ctx = A.ctx; if (!ctx) return;
   const p = PULSARS[st.cur], now = ctx.currentTime, f = engine.freqAt(now + 0.2);
   if (f < 250) {
-    const lead = Math.max(0.03, ...A.shapes[st.cur].map(([c, s]) => (5 * s - c) / f));
+    const lead = Math.max(0.08, ...A.shapes[st.cur].map(([c, s]) => (5 * s - c) / f));
     const horizon = now + 0.15 + lead;
     let n = Math.max(A.nextPulse, Math.ceil(engine.phaseAt(now + 0.01)));
     for (let guard = 0; guard < 60; guard++) {
