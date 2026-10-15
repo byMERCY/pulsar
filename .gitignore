@@ -1,0 +1,6 @@
+# reference recordings stay local: they belong to their authors
+*.mp4
+*.m4a
+*.mp3
+*.wav
+*.webm

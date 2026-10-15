@@ -1,0 +1,1604 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Вращающаяся нейтронная звезда в WebGL и её радиоимпульсы, переведённые в звук: пять настоящих пульсаров.">
+<title>Голос пульсара</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-bleed WebGL sky; instrument readouts pinned to the corners like an observatory console; narration in the lower third. One deliberate dark look. */
+:root{
+  --void:#03040a;
+  --ink:#dde6f2;
+  --dim:#8391ab;
+  --rule:rgba(156,190,240,.2);
+  --beam:#a6d2ff;
+  --beam-wash:rgba(166,210,255,.12);
+  --veil:rgba(3,4,10,.72);
+  --display:"Cormorant Garamond","Cormorant",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,"Courier New",monospace;
+  --gut:clamp(16px,3vw,36px);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0;background:var(--void);color:var(--ink);overflow:hidden}
+body{font:400 13px/1.5 var(--mono);-webkit-font-smoothing:antialiased}
+#sky{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#sky.drag{cursor:grabbing}
+body.idle #sky{cursor:none}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:1px solid var(--beam);outline-offset:3px}
+
+.ui{position:fixed;inset:0;pointer-events:none;transition:opacity 1.4s ease}
+.ui > *{pointer-events:auto}
+.ui.off,.ui.idle{opacity:0}
+.ui.off > *{pointer-events:none}
+.ui.idle{transition-duration:2.6s}
+.ui::before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,var(--veil) 0%,transparent 30%,transparent 72%,var(--veil) 100%)}
+
+.id{position:absolute;top:calc(var(--gut) + env(safe-area-inset-top,0px));left:var(--gut);max-width:min(36ch,calc(100vw - 2*var(--gut)))}
+.eyebrow{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim)}
+.dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--beam);box-shadow:0 0 12px var(--beam);opacity:.15}
+.id h1{margin:.12em 0 .28em;font:300 clamp(40px,5.6vw,74px)/.95 var(--display);letter-spacing:-.01em;text-wrap:balance;font-variant-numeric:lining-nums}
+.readout{display:grid;grid-template-columns:auto 1fr;gap:3px 18px;margin:0 0 16px;font-variant-numeric:tabular-nums}
+.readout dt{color:var(--dim);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;align-self:baseline}
+.readout dd{margin:0}
+.desc{margin:0;font:400 17.5px/1.42 var(--display);color:var(--ink);opacity:.86;max-width:34ch}
+
+.ctl{position:absolute;top:calc(var(--gut) + env(safe-area-inset-top,0px));right:var(--gut);display:grid;gap:9px;width:min(250px,40vw);font-size:11px}
+.ctl label,.ctl .lbl{display:flex;justify-content:space-between;gap:12px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase}
+.ctl output{color:var(--ink);letter-spacing:0;font-variant-numeric:tabular-nums}
+.hint{color:var(--dim);font-size:10.5px;line-height:1.45;margin:-4px 0 4px}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:18px;background:transparent;margin:0;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--rule)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:var(--ink);margin-top:-5px;box-shadow:0 0 10px var(--beam)}
+input[type=range]::-moz-range-track{height:1px;background:var(--rule)}
+input[type=range]::-moz-range-thumb{width:11px;height:11px;border:0;border-radius:50%;background:var(--ink)}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+.btn{background:transparent;border:1px solid var(--rule);padding:5px 9px;font-size:11px;letter-spacing:.05em;cursor:pointer;transition:border-color .2s,background .2s}
+.btn:hover{border-color:var(--beam)}
+.btn[aria-pressed=true]{background:var(--beam-wash);border-color:var(--beam)}
+
+.pick{position:absolute;left:var(--gut);bottom:calc(var(--gut) + env(safe-area-inset-bottom,0px));display:flex;gap:4px;max-width:calc(100vw - 2*var(--gut));overflow-x:auto;scrollbar-width:none}
+.pick::-webkit-scrollbar{display:none}
+.pk{flex:0 0 auto;display:grid;gap:3px;text-align:left;background:transparent;border:0;border-top:1px solid var(--rule);padding-block:10px 4px;padding-inline:0 22px;cursor:pointer;color:var(--dim);transition:color .3s,border-color .3s}
+.pk b{font:400 23px/1 var(--display);font-variant-numeric:lining-nums;color:var(--ink);opacity:.62;transition:opacity .3s}
+.pk span{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-variant-numeric:tabular-nums}
+.pk span.f{text-transform:none;letter-spacing:.06em}
+.pk:hover b{opacity:1}
+.pk[aria-current=true]{border-top-color:var(--beam);color:var(--beam)}
+.pk[aria-current=true] b{opacity:1}
+
+.wf{position:absolute;right:var(--gut);bottom:calc(var(--gut) + env(safe-area-inset-bottom,0px));margin:0;width:210px}
+.wf canvas{display:block;width:210px;height:250px}
+.wf figcaption{margin-top:8px;color:var(--dim);font-size:10.5px;letter-spacing:.04em;line-height:1.45}
+
+.narr{position:fixed;left:50%;bottom:23vh;transform:translateX(-50%);width:min(30em,calc(100vw - 2*var(--gut)));text-align:center;font:300 italic clamp(21px,2.4vw,32px)/1.35 var(--display);color:var(--ink);text-wrap:balance;pointer-events:none;opacity:0;filter:blur(5px);transition:opacity 1.3s ease,filter 1.3s ease;text-shadow:0 0 28px var(--void),0 0 8px var(--void)}
+.narr.on{opacity:1;filter:blur(0)}
+
+.gate{position:fixed;inset:0;display:flex;align-items:flex-end;padding-inline:var(--gut);padding-block:var(--gut) calc(var(--gut)*2 + env(safe-area-inset-bottom,0px));background:linear-gradient(90deg,var(--veil) 0%,transparent 72%);transition:opacity 1.8s ease}
+.gate.gone{opacity:0;pointer-events:none}
+.gate-in{max-width:40rem;display:grid;gap:18px}
+.gate .meta{margin:0;font:11px/1.5 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--dim)}
+.gate h2{margin:0;font:300 clamp(56px,9vw,128px)/.86 var(--display);letter-spacing:-.025em;text-wrap:balance}
+.gate h2 em{font-style:italic;color:var(--beam)}
+.gate p.lede{margin:0;font:400 clamp(18px,1.6vw,21px)/1.48 var(--display);max-width:33em;opacity:.9}
+.go{justify-self:start;display:inline-flex;align-items:center;gap:14px;background:var(--ink);color:var(--void);border:0;padding-block:15px;padding-inline:22px 28px;font:500 12px/1 var(--mono);letter-spacing:.22em;text-transform:uppercase;cursor:pointer;transition:box-shadow .4s}
+.go:hover{box-shadow:0 0 44px var(--beam)}
+.go i{width:8px;height:8px;border-radius:50%;background:var(--void);animation:beat 1.3373s infinite}
+@keyframes beat{0%,5%{opacity:1;transform:scale(1.45)}22%,100%{opacity:.22;transform:scale(1)}}
+.skip{position:fixed;right:var(--gut);bottom:calc(var(--gut) + env(safe-area-inset-bottom,0px));background:transparent;border:1px solid var(--rule);padding:6px 11px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);cursor:pointer}
+.skip:hover{color:var(--ink);border-color:var(--beam)}
+.glerr{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(28em,calc(100vw - 2*var(--gut)));text-align:center;font:italic 300 22px/1.4 var(--display);color:var(--dim)}
+
+@media (max-width:920px),(max-height:620px){.wf{display:none}}
+@media (max-height:620px){.desc{display:none}}
+@media (max-width:640px){
+  .desc{display:none}
+  .id h1{font-size:40px}
+  .ctl{top:auto;bottom:calc(var(--gut) + 86px + env(safe-area-inset-bottom,0px));left:var(--gut);right:var(--gut);width:auto;grid-template-columns:1fr 1fr;align-items:end}
+  .ctl .hint{display:none}
+  .ctl .btns{grid-column:1/-1}
+}
+@media (prefers-reduced-motion:reduce){.go i{animation:none}.narr{transition:opacity .6s ease}}
+</style>
+
+<canvas id="sky" aria-label="Вращающаяся нейтронная звезда с двумя лучами излучения"></canvas>
+
+<div class="ui off" id="ui">
+  <header class="id">
+    <div class="eyebrow"><span class="dot" id="dot"></span><span>PSR</span><span id="alias">CP 1919 · LGM-1</span></div>
+    <h1 id="pname">B1919+21</h1>
+    <dl class="readout">
+      <dt>Период</dt><dd id="rPeriod">1,3373 с</dd>
+      <dt>Вращение</dt><dd id="rFreq">0,748 об/с</dd>
+      <dt>Расстояние</dt><dd id="rDist">≈ 2 300 св. лет</dd>
+    </dl>
+    <p class="desc" id="pdesc"></p>
+  </header>
+
+  <div class="ctl">
+    <label for="timeScale">Время <output id="tsOut" for="timeScale">×1</output></label>
+    <input type="range" id="timeScale" min="0" max="1" step="0.001" value="1">
+    <div class="hint">Замедли время, и быстрый пульсар распадётся на отдельные удары.</div>
+    <label for="vol">Громкость <output id="volOut" for="vol">80</output></label>
+    <input type="range" id="vol" min="0" max="1" step="0.01" value="0.8">
+    <span class="lbl" id="modeLbl">Звук</span>
+    <div class="btns" role="group" aria-labelledby="modeLbl">
+      <button class="btn" id="mAtmo" type="button" aria-pressed="true">С атмосферой</button>
+      <button class="btn" id="mScope" type="button" aria-pressed="false">Как в телескопе</button>
+    </div>
+    <div class="btns">
+      <button class="btn" id="bFull" type="button">Во весь экран</button>
+      <button class="btn" id="bHide" type="button">Скрыть · H</button>
+    </div>
+    <div class="hint">Колёсико или +/− отдаляют камеру, перетаскивание её поворачивает.</div>
+  </div>
+
+  <nav class="pick" id="picker" aria-label="Пульсары"></nav>
+
+  <figure class="wf">
+    <canvas id="wf" width="210" height="250"></canvas>
+    <figcaption id="wfCap">Каждая линия — один оборот</figcaption>
+  </figure>
+</div>
+
+<div class="narr" id="narr" aria-live="polite"></div>
+
+<section class="gate" id="gate">
+  <div class="gate-in">
+    <p class="meta">Пять пульсаров · от 0,75 до 716 оборотов в секунду</p>
+    <h2>Голос <em>пульсара</em></h2>
+    <p class="lede">Нейтронная звезда размером с город вращается, как маяк. Каждый оборот её луч задевает Землю, и радиотелескоп ловит короткий импульс. Здесь эти импульсы переведены в звук по настоящим периодам пяти пульсаров.</p>
+    <button class="go" id="go" type="button"><i></i>Слушать в наушниках</button>
+  </div>
+</section>
+<button class="skip" id="skip" type="button" hidden>Пропустить · Esc</button>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const TAU = Math.PI * 2;
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const approach = (v, target, dt, tau) => v + (target - v) * (1 - Math.exp(-dt / tau));
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const rot = (v, k, a) => { const c = Math.cos(a), s = Math.sin(a), kv = cross(k, v), kd = dot(k, v) * (1 - c);
+  return [v[0] * c + kv[0] * s + k[0] * kd, v[1] * c + kv[1] * s + k[1] * kd, v[2] * c + kv[2] * s + k[2] * kd]; };
+const deg = d => d * Math.PI / 180;
+
+// comps: [phase centre, sigma in phase, amplitude]; win: phase window drawn in the pulse stack
+const PULSARS = [
+  { key: 'B1919+21', alias: 'CP 1919 · LGM-1', P: 1.3373, period: '1,3373 с', freq: '0,748 об/с', chip: '0,75 Гц', dist: '≈ 2 300 св. лет',
+    alpha: 24, beamW: 0.1,
+    // old and slow: a narrow pencil beam, light cylinder 64 000 km away so the beam barely bends, a cool surface
+    look: { core: 0.55, twist: 0.12, beamI: 0.65, beam2: 1, fieldExt: 1.25, fieldI: 0.8, surf: 0.5, caps: 0.6, tint: [0.78, 0.86, 1], surfTint: [0.7, 0.76, 0.95] },
+    comps: [[-0.0052, 0.0036, 1.0], [0.0048, 0.0034, 0.78]], win: [-0.034, 0.034],
+    drift: { spacing: 0.0102, rate: 0.0021, width: 0.0024 }, jitter: 0.45, pop: 0.7,
+    env: [0, 0, 0, 0], nebA: [1, .5, .3], nebB: [.3, .4, .8],
+    desc: 'Первый пульсар в истории. Его импульсы, сложенные столбиком, стали обложкой альбома Unknown Pleasures группы Joy Division.',
+    line: '1,337 секунды на оборот. С этого звука всё началось.' },
+  { key: 'B0833−45', alias: 'Пульсар в Парусах', P: 0.089328, period: '89,3 мс', freq: '11,2 об/с', chip: '11 Гц', dist: '≈ 950 св. лет',
+    alpha: 16, beamW: 0.17,
+    // young and hot, strong field; the beam starts to wind
+    look: { core: 0.9, twist: 0.9, beamI: 1, beam2: 1, fieldExt: 1.05, fieldI: 1, surf: 1, caps: 0.8, tint: [0.8, 0.9, 1], surfTint: [0.6, 0.72, 1] },
+    comps: [[-0.022, 0.008, 0.22], [0, 0.0075, 1.0]], win: [-0.08, 0.06],
+    env: [0.55, 0, 0.85, 0], nebA: [1.0, .42, .52], nebB: [.25, .75, .7],
+    // measured on a radio-telescope recording of Vela (see REC below): 10.4 dB modulation depth, pulse-to-pulse spread 19 %
+    rec: { cv: 0.19, rms: 0.33,
+      M: [1000,978,977,959,984,914,942,899,885,881,868,847,786,801,784,840,826,830,820,773,766,665,664,682,680,595,615,557,529,583,621,603,698,638,650,659,707,690,700,606,593,566,499,500,446,439,377,371,384,391,424,458,425,460,429,440,395,364,348,386,401,431,352,392,319,404,415,381,412,441,359,372,376,363,362,356,366,377,369,375,364,335,343,360,369,356,363,352,323,322,307,319,357,322,324,342,339,315,335,332,297,333,324,312,286,372,334,364,371,318,331,323,354,349,374,392,375,336,363,371,360,406,480,545,661,756,859,899],
+      bands: [-120,-23,-120,-21,-20,-120,-22,-22,-120,-22,-20,-19,-18,-19,-19,-14,-11,-11,-11,-6,-6,-6,-4,-9,-4,-3,-6,-4,-5,-5,-5,-2,-3,-4,0,-7,-12,-15,-16,-19,-15,-11,-12,-8,-11,-13,-16,-15,-15,-17,-15,-15,-17,-17,-18,-14,-13,-17,-17,-19,-20,-21,-23,-24,-27,-27,-28,-29,-31,-32,-31,-32,-33,-34,-35,-36,-38,-37,-36,-36,-36,-37,-36,-35,-32,-30,-34,-35,-39,-35,-34,-36,-44,-46,-45,-46,-43,-45,-48,-51] },
+    desc: 'Остаток сверхновой, вспыхнувшей около 11 000 лет назад. Иногда звезда рывком ускоряет вращение, астрономы называют это глитчем.',
+    line: 'Одиннадцать оборотов в секунду. Удары сливаются в дробь.' },
+  { key: 'B0531+21', alias: 'Крабовидная туманность', P: 0.033704, period: '33,7 мс', freq: '29,7 об/с', chip: '30 Гц', dist: '≈ 6 500 св. лет',
+    alpha: 20, beamW: 0.24,
+    // the most powerful of the five; the interpulse comes from the weaker second beam
+    look: { core: 1.25, twist: 1.4, beamI: 1.25, beam2: 0.55, fieldExt: 0.9, fieldI: 1.1, surf: 1.15, caps: 0.8, tint: [0.86, 0.92, 1], surfTint: [0.62, 0.74, 1] },
+    comps: [[0, 0.007, 1.0], [0.4, 0.009, 0.55]], win: [-0.14, 0.56],
+    env: [1, 0, 1, 0], nebA: [1.0, .46, .24], nebB: [.35, .5, 1.0],
+    // measured on a radio-telescope recording of the Crab: a steady buzz, 23 dB modulation, pulses vary only ~3 %
+    rec: { cv: 0.034, rms: 0.37,
+      M: [1000,999,985,914,797,630,509,522,685,755,670,591,583,599,586,595,577,500,506,642,792,874,851,731,587,451,355,261,195,157,152,156,156,229,464,650,694,718,550,501,403,394,358,329,416,522,598,565,475,512,593,648,619,535,440,355,265,190,164,180,169,132,125,121,159,230,305,329,307,269,299,372,452,470,413,326,265,228,208,170,137,139,147,143,125,124,148,171,169,147,133,147,175,194,200,168,141,107,87,73,68,66,67,72,80,83,111,128,127,206,418,663,753,820,828,666,635,596,565,597,782,850,924,934,899,867,952,962],
+      bands: [-120,-19,-120,-12,-13,-120,-21,-21,-120,-22,-15,-15,-18,-20,-21,-15,-16,-21,-21,-3,-10,-19,-9,-15,-9,0,-18,-7,-11,-18,-18,-11,-17,-10,-1,-8,-6,-17,-9,-19,-17,-16,-19,-9,-19,-17,-18,-15,-17,-22,-18,-18,-22,-19,-24,-19,-20,-23,-23,-25,-25,-28,-30,-30,-32,-32,-32,-33,-33,-34,-33,-33,-34,-35,-36,-37,-37,-37,-38,-38,-38,-40,-41,-41,-38,-37,-37,-36,-39,-37,-39,-42,-48,-47,-45,-47,-45,-49,-52,-51] },
+    desc: 'Её сверхновую 1054 года записали китайские астрономы: 23 дня звезду было видно даже днём. Энергия вращения пульсара заставляет светиться всю Крабовидную туманность.',
+    line: 'Тридцать оборотов в секунду. Дробь превращается в гул.' },
+  { key: 'J0437−4715', alias: 'Миллисекундный пульсар', P: 0.0057575, period: '5,757 мс', freq: '173,7 об/с', chip: '174 Гц', dist: '≈ 510 св. лет',
+    alpha: 12, beamW: 0.4,
+    // millisecond pulsar: wide beams, a field thousands of times weaker, a compact magnetosphere wound tight,
+    // a cold star with hot polar caps (seen in X-rays by NICER)
+    look: { core: 1.6, twist: 2.0, beamI: 0.85, beam2: 1, fieldExt: 0.55, fieldI: 0.45, surf: 0.4, caps: 2.2, tint: [0.82, 0.86, 1], surfTint: [0.66, 0.7, 0.92] },
+    comps: [[-0.034, 0.016, 0.55], [0, 0.011, 1.0], [0.03, 0.018, 0.45]], win: [-0.15, 0.15],
+    env: [0, 0, 0, 1], nebA: [1, .5, .3], nebB: [.3, .4, .8],
+    desc: 'Ближайший к нам миллисекундный пульсар. Его раскрутило вещество, перетянутое с компаньона, белого карлика. По стабильности хода он спорит с атомными часами.',
+    line: 'Сто семьдесят четыре оборота в секунду. Это уже нота, почти фа малой октавы.' },
+  { key: 'J1748−2446ad', alias: 'Шаровое скопление Терзан 5', P: 0.001396, period: '1,396 мс', freq: '716 об/с', chip: '716 Гц', dist: '≈ 19 000 св. лет',
+    alpha: 14, beamW: 0.5,
+    // fastest known: light cylinder only ~70 km out, the tightest spiral and the widest beams
+    look: { core: 2.0, twist: 2.6, beamI: 0.8, beam2: 1, fieldExt: 0.42, fieldI: 0.4, surf: 0.45, caps: 2.0, tint: [0.84, 0.86, 1], surfTint: [0.66, 0.7, 0.92] },
+    comps: [[0, 0.04, 1.0], [0.085, 0.03, 0.4]], win: [-0.3, 0.3],
+    env: [0, 1, 0, 0], nebA: [1, .5, .3], nebB: [.3, .4, .8],
+    desc: 'Самый быстрый из известных пульсаров. Точка на его экваторе пролетает больше 50 000 км за секунду.',
+    line: 'Семьсот шестнадцать оборотов в секунду. Звезда поёт.' },
+];
+
+// how a radio recording renders a pulse, measured on B0329+54; pulsars may override it with their own `voice`
+const VOICE = { hold: 0.008, rel: 0.010, lp: 600, noise: 1, partials: [[200, 1, 0.016], [234, 0.8, 0.012], [316, 1.2, 0.009], [363, 1.6, 0.010]] };
+const voiceOf = p => p.voice || VOICE;
+
+const profileAt = (p, x) => {
+  let v = 0;
+  for (const [c, s, a] of p.comps) { let d = x - c; d -= Math.round(d); v += a * Math.exp(-0.5 * (d / s) ** 2); }
+  return v;
+};
+
+// ---------- state ----------
+// spin axis is upright; the camera looks at the star from just above its equator, so the beams run top to bottom
+const S_AXIS = [0, 1, 0];
+const X0 = [0, 0, 1];
+const Z0 = cross(X0, S_AXIS);
+const O_VIEW = norm(add(mul(S_AXIS, Math.cos(deg(78))), mul(X0, Math.sin(deg(78)))));
+const HOME = 3; // J0437−4715, where the intro lands
+
+const st = {
+  cur: HOME, timeScale: 1, vol: 0.8, muted: false,
+  started: false, intro: false, playing: false, hidden: false,
+  fade: 0.5, fadeTarget: 0.5, fadeTau: 1,
+  blur: 1, tune: 0, tuneT: 9, plasmaT: 0, disp: 0, dispRate: 4.8, swirl: 0, spin: null,
+  vis: { alpha: deg(12), beamW: 0.4, look: JSON.parse(JSON.stringify(PULSARS[HOME].look)), env: [0, 0, 0, 1], nebA: [1, .5, .3], nebB: [.3, .4, .8] },
+  dist: 5.4, distT: 5.4, scope: false, yaw: 0, pitch: 0, dragging: false, driftT: 0,
+  lastMove: performance.now(),
+};
+
+// ---------- phase engine: piecewise-constant spin frequency, shared by audio and picture ----------
+const engine = {
+  segs: [{ t: performance.now() / 1000, phase: 0, f: 1 / PULSARS[HOME].P }],
+  seg(t) { const s = this.segs; let i = s.length - 1; while (i > 0 && s[i].t > t) i--; return s[i]; },
+  phaseAt(t) { const g = this.seg(t); return g.phase + g.f * (t - g.t); },
+  freqAt(t) { return this.seg(t).f; },
+  timeOfPhase(ph) {
+    const s = this.segs;
+    for (let i = 0; i < s.length; i++) { const g = s[i], nx = s[i + 1]; if (!nx || nx.phase > ph) return g.t + (ph - g.phase) / g.f; }
+    return Infinity;
+  },
+  setFreq(f, t) {
+    const ph = this.phaseAt(t);
+    while (this.segs.length > 1 && this.segs[this.segs.length - 1].t >= t) this.segs.pop();
+    this.segs.push({ t, phase: ph, f });
+    if (this.segs.length > 48) this.segs.splice(0, this.segs.length - 48);
+    if (A.osc) { A.osc.frequency.cancelScheduledValues(t); A.osc.frequency.setValueAtTime(f, t); }
+  },
+  // retune a little ahead of the audio clock, never before an already scheduled change
+  retune(f) {
+    const t = Math.max(A.ctx.currentTime + 0.03, this.segs[this.segs.length - 1].t + 0.001);
+    this.setFreq(f, t); applyFreqMix(f, t);
+  },
+};
+
+const effScale = p => Math.max(st.timeScale, 0.3 * p.P);
+const effFreq = p => effScale(p) / p.P;
+
+// ---------- audio ----------
+const A = { ctx: null, osc: null, amps: new Map(), nextPulse: 0, scint: 1, nextScint: 0, nextFade: 0, lastSwell: -99, swellGap: 60 };
+
+function audioNow() {
+  const ctx = A.ctx;
+  if (!ctx) return performance.now() / 1000;
+  if (ctx.getOutputTimestamp) {
+    const ts = ctx.getOutputTimestamp();
+    if (ts.contextTime > 0 && ts.performanceTime > 0) return ts.contextTime + (performance.now() - ts.performanceTime) / 1000;
+  }
+  return ctx.currentTime - (ctx.outputLatency || ctx.baseLatency || 0);
+}
+
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+function noiseBuffer(ctx, secs, kind) {
+  const n = Math.floor(ctx.sampleRate * secs), b = ctx.createBuffer(2, n, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = b.getChannelData(ch);
+    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+    for (let i = 0; i < n; i++) {
+      const w = Math.random() * 2 - 1;
+      if (kind === 'white') { d[i] = w; continue; }
+      b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759; b2 = 0.96900 * b2 + w * 0.1538520;
+      b3 = 0.86650 * b3 + w * 0.3104856; b4 = 0.55000 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.0168980;
+      d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11; b6 = w * 0.115926;
+    }
+  }
+  return b;
+}
+
+function makeIR(ctx, secs, decay) {
+  const sr = ctx.sampleRate, n = Math.floor(sr * secs), b = ctx.createBuffer(2, n, sr), pre = Math.floor(sr * 0.03);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = b.getChannelData(ch); let lp = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / n, k = 0.06 + 0.85 * Math.pow(1 - t, 2.2);
+      lp += ((Math.random() * 2 - 1) - lp) * k;
+      d[i] = i < pre ? 0 : lp * Math.pow(1 - t, decay) * Math.min(1, (i - pre) / (sr * 0.02));
+    }
+  }
+  return b;
+}
+
+function satCurve(drive) {
+  const n = 2048, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; c[i] = Math.tanh(x * drive) / Math.tanh(drive); }
+  return c;
+}
+
+// Fourier series of a train of gaussian pulses, peak at phase 0
+function profileWave(ctx, comps) {
+  const N = 256, re = new Float32Array(N), im = new Float32Array(N);
+  for (let k = 1; k < N; k++) for (const [c, s, a] of comps) {
+    const e = a * Math.exp(-0.5 * (TAU * k * s) ** 2);
+    re[k] += e * Math.cos(TAU * k * c); im[k] += e * Math.sin(TAU * k * c);
+  }
+  return ctx.createPeriodicWave(re, im, { disableNormalization: false });
+}
+
+// ---- recorded voices: Vela and the Crab rebuilt from measurements of a radio-telescope recording ----
+// The recording is modelled as coloured noise times a modulation locked to the rotation:
+//   x(t) = C(t) · M(phase(t)) · a_pulse
+// M is the recording's RMS envelope folded over one period (128 points, peak at phase 0),
+// C has the recording's spectrum measured after dividing out M (1/12-octave bands from 50 Hz).
+function fftc(re, im, inv) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+  for (let len = 2; len <= n; len <<= 1) {
+    const a = (inv ? 2 : -2) * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let j = 0; j < len / 2; j++) {
+        const k = i + j + len / 2, vr = re[k] * cr - im[k] * ci, vi = re[k] * ci + im[k] * cr;
+        re[k] = re[i + j] - vr; im[k] = im[i + j] - vi; re[i + j] += vr; im[i + j] += vi;
+        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+      }
+    }
+  }
+}
+
+// noise with the measured spectrum; the inverse FFT makes it exactly periodic, so it loops without a seam
+function colouredNoise(ctx, bandsDb) {
+  const sr = ctx.sampleRate; let N = 1; while (N < sr * 2.5) N <<= 1;
+  const b = bandsDb.map((v, i, arr) => {
+    if (v > -100) return v;
+    const l = arr.slice(0, i).reverse().find(x => x > -100), r = arr.slice(i + 1).find(x => x > -100);
+    return ((l ?? r) + (r ?? l)) / 2;
+  });
+  const re = new Float64Array(N), im = new Float64Array(N);
+  for (let k = 1; k < N / 2; k++) {
+    const f = k * sr / N, x = 12 * Math.log2(f / 50);
+    let db;
+    if (x < 0) db = b[0] + 2 * x;                       // below 50 Hz: roll off
+    else if (x >= b.length - 1) db = b[b.length - 1] - 1.5 * (x - b.length + 1);
+    else { const i = Math.floor(x), t = x - i; db = b[i] * (1 - t) + b[i + 1] * t; }
+    const mag = Math.pow(10, db / 20), ph = Math.random() * TAU;
+    re[k] = mag * Math.cos(ph); im[k] = mag * Math.sin(ph); re[N - k] = re[k]; im[N - k] = -im[k];
+  }
+  fftc(re, im, true);
+  let s = 0; for (let i = 0; i < N; i++) s += re[i] * re[i];
+  const g = 1 / Math.sqrt(s / N), buf = ctx.createBuffer(1, N, sr), d = buf.getChannelData(0);
+  for (let i = 0; i < N; i++) d[i] = re[i] * g;
+  return buf;
+}
+
+// the folded envelope as an exact (unnormalised) Fourier series; its mean goes in as a DC gain
+function modulationWave(ctx, M) {
+  const B = M.length, K = B / 2, re = new Float32Array(K), im = new Float32Array(K), m = M.map(v => v / 1000);
+  let dc = 0, ms = 0; for (const v of m) { dc += v; ms += v * v; } dc /= B; ms /= B;
+  for (let k = 1; k < K; k++) {
+    let a = 0, c = 0;
+    for (let q = 0; q < B; q++) { a += m[q] * Math.cos(TAU * k * q / B); c += m[q] * Math.sin(TAU * k * q / B); }
+    re[k] = 2 * a / B; im[k] = 2 * c / B;
+  }
+  return { wave: ctx.createPeriodicWave(re, im, { disableNormalization: true }), dc, rms: Math.sqrt(ms) };
+}
+
+function startAudio() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return false;
+  const ctx = new AC({ latencyHint: 'interactive' });
+  A.ctx = ctx;
+  const now = ctx.currentTime;
+  const gain = v => { const g = ctx.createGain(); g.gain.value = v; return g; };
+  const biq = (type, f, q) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; };
+  const osc = (type, f) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; return o; };
+  const loop = (buf, offset = 0) => { const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; s.start(now, offset); return s; };
+  A.gain = gain; A.biq = biq;
+
+  const out = gain(volCurve()); const lim = ctx.createDynamicsCompressor();
+  lim.threshold.value = -6; lim.knee.value = 6; lim.ratio.value = 12; lim.attack.value = 0.002; lim.release.value = 0.22;
+  const master = gain(0);
+  master.connect(lim); lim.connect(out); out.connect(ctx.destination);
+  master.gain.setValueAtTime(0, now); master.gain.linearRampToValueAtTime(1, now + 2.5);
+  A.out = out; A.master = master;
+
+  // reverb and the atmosphere layers can be switched off for the dry "telescope" sound
+  const verb = ctx.createConvolver(); verb.buffer = makeIR(ctx, 7, 2.6);
+  const verbIn = gain(1), verbHp = biq('highpass', 170, 0.5), verbOut = gain(0.9);
+  verbIn.connect(verbHp); verbHp.connect(verb); verb.connect(verbOut); verbOut.connect(master);
+  const atmoBus = gain(1); atmoBus.connect(master);
+  Object.assign(A, { verbIn, verbOut, atmoBus });
+  const send = (node, dry, wet) => {
+    if (dry) { const g = gain(dry); node.connect(g); g.connect(atmoBus); }
+    if (wet) { const g = gain(wet); node.connect(g); g.connect(verbIn); }
+  };
+
+  A.white = noiseBuffer(ctx, 5, 'white'); A.pink = noiseBuffer(ctx, 7, 'pink');
+
+  // The signal the way an observatory turns it into sound: the receiver output, i.e. steady noise
+  // whose power jumps with every pulse. Slow pulsars get a freshly synthesised buffer per pulse
+  // (playPulse), fast ones an oscillator whose waveform is the pulse profile.
+  A.mods = PULSARS.map(q => q.rec ? modulationWave(ctx, q.rec.M) : null);
+  A.waves = PULSARS.map((q, i) => A.mods[i] ? A.mods[i].wave : profileWave(ctx, q.comps));
+  const p = PULSARS[st.cur], f0 = effFreq(p);
+  const po = ctx.createOscillator(); po.setPeriodicWave(A.waves[st.cur]); po.frequency.value = f0; A.osc = po;
+  const vca = gain(0); loop(A.white).connect(vca); po.connect(vca.gain);
+  const nGain = gain(0.55); vca.connect(nGain);
+  const toneLp = biq('lowpass', 3200, 0.3), toneGain = gain(0);
+  po.connect(toneLp); toneLp.connect(toneGain);
+  const oscMix = gain(0); nGain.connect(oscMix); toneGain.connect(oscMix);
+  const pAmp = gain(1); oscMix.connect(pAmp);
+  A.bufIn = gain(1);
+  const scint = gain(1); pAmp.connect(scint); A.bufIn.connect(scint);
+  // measured on real recordings: the pulse energy sits at ~150-450 Hz (peaks near 200 and 360 Hz)
+  // and falls off steeply above ~1 kHz, so the chain is a dark, slightly resonant band
+  const bandHp = biq('highpass', 100, 0.7), body = biq('peaking', 300, 1.0), bandLp = biq('lowpass', 600, 0.7), bandLp2 = biq('lowpass', 1800, 0.7);
+  body.gain.value = 4;
+  scint.connect(bandHp); bandHp.connect(body); body.connect(bandLp); bandLp.connect(bandLp2);
+  const pMute = gain(0); bandLp2.connect(pMute);
+  A.bandLp = bandLp; A.bandLp2 = bandLp2;
+  // continuous receiver noise coloured by the same chain as the pulses (dense in the Vela recording)
+  { const fHp = biq('highpass', 150, 0.7), fLp = biq('lowpass', 1100, 0.7);
+    A.floor = gain(0); loop(A.pink, 2.2).connect(fHp); fHp.connect(fLp); fLp.connect(A.floor); A.floor.connect(bandHp); }
+  A.pulseIn = gain(1); A.pulseIn.connect(pMute);
+  { const g = gain(0.95); pMute.connect(g); g.connect(master); }
+  A.pWet = gain(0.4); pMute.connect(A.pWet); A.pWet.connect(verbIn);
+  Object.assign(A, { pAmp, pMute, toneGain, oscMix, fade: scint });
+
+  // recorded voices: their own coloured noise, gated by the shared rotation oscillator, straight to the output
+  A.recVca = gain(0); A.recDepth = gain(0); po.connect(A.recDepth); A.recDepth.connect(A.recVca.gain);
+  A.recAmp = gain(1); A.recOut = gain(0); A.recVca.connect(A.recAmp); A.recAmp.connect(A.recOut); A.recOut.connect(pMute);
+  A.recSrc = PULSARS.map(q => {
+    if (!q.rec) return null;
+    const g = gain(0); loop(colouredNoise(ctx, q.rec.bands), Math.random() * 2).connect(g); g.connect(A.recVca); return g;
+  });
+
+  const shaper = ctx.createWaveShaper(); shaper.curve = satCurve(2.6); shaper.oversample = '2x';
+  A.thumpIn = gain(1); const thumpOut = gain(0.6);
+  A.thumpIn.connect(shaper); shaper.connect(thumpOut); thumpOut.connect(A.pulseIn);
+
+  const t0 = now + 0.15;
+  po.start(t0);
+  engine.segs = [{ t: t0, phase: 0, f: f0 }];
+  applyFreqMix(f0, now);
+
+  // receiver noise, always there underneath the pulses
+  { const hp = biq('highpass', 120, 0.5), lp = biq('lowpass', 1000, 0.7);
+    A.hiss = gain(0.016); A.hissLp = lp;
+    loop(A.white, 1.3).connect(hp); hp.connect(lp); lp.connect(A.hiss); A.hiss.connect(master); }
+
+  // slow interstellar wind, stereo
+  for (let ch = 0; ch < 2; ch++) {
+    const bp = biq('bandpass', 380, 1.3), g = gain(0.22), pan = ctx.createStereoPanner(); pan.pan.value = ch ? 0.75 : -0.75;
+    const lfo = osc('sine', 0.019 + ch * 0.011), lg = gain(230); lfo.connect(lg); lg.connect(bp.frequency); lfo.start(now);
+    loop(A.pink, ch ? 3.1 : 0.2).connect(bp); bp.connect(g); g.connect(pan); send(pan, 1, 0.55);
+  }
+
+  // drone in D
+  { const lp = biq('lowpass', 150, 2.2), g = gain(0);
+    const lfo = osc('sine', 0.027), lg = gain(70); lfo.connect(lg); lg.connect(lp.frequency); lfo.start(now);
+    [[36.71, 'sine', .5], [36.94, 'sine', .5], [55, 'triangle', .26], [73.42, 'sawtooth', .13], [110, 'sawtooth', .05]].forEach(([f, t, v]) => {
+      const o = osc(t, f), og = gain(v); o.connect(og); og.connect(lp); o.start(now);
+    });
+    lp.connect(g); send(g, 1, 0.25);
+    g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.16, now + 9);
+  }
+
+  // choir cluster through vowel formants
+  { const mix = gain(1), cout = gain(0); A.choir = cout;
+    A.formants = [[730, 6, 1], [1090, 8, .55], [2440, 10, .22]].map(([f, q, v]) => {
+      const b = biq('bandpass', f, q), g = gain(v * 2.4); mix.connect(b); b.connect(g); g.connect(cout); return b;
+    });
+    [73.42, 110, 146.83, 164.81, 174.61, 220, 261.63, 293.66].forEach(hz => {
+      for (const det of [-7, 6]) {
+        const o = osc('sawtooth', hz); o.detune.value = det + (Math.random() - .5) * 4;
+        const lfo = osc('sine', 0.12 + Math.random() * 0.25), lg = gain(4 + Math.random() * 4);
+        lfo.connect(lg); lg.connect(o.detune);
+        const vg = gain(0.06); o.connect(vg); vg.connect(mix); o.start(now); lfo.start(now);
+      }
+    });
+    send(cout, 0.35, 1.0);
+  }
+
+  // high shimmer, reverb only
+  [1174.66, 1760, 2349.32, 2637.02].forEach((hz, i) => {
+    const o = osc('sine', hz), g = gain(0.003), lfo = osc('sine', 0.045 + i * 0.029), lg = gain(0.003);
+    lfo.connect(lg); lg.connect(g.gain); o.connect(g); send(g, 0, 1); o.start(now); lfo.start(now);
+  });
+
+  applyMode();
+  A.timer = setInterval(schedule, 25);
+  return true;
+}
+
+function volCurve() { return st.muted ? 0 : st.vol * st.vol * 1.15; }
+
+function applyFreqMix(f, t) {
+  if (!A.ctx) return;
+  const rec = !!PULSARS[st.cur].rec;
+  A.toneGain.gain.setTargetAtTime(0.5 * smooth(12, 80, f), t, 0.2);
+  A.oscMix.gain.setTargetAtTime(rec ? 0 : smooth(10, 20, f), t, 0.15);
+}
+
+// "telescope": dry receiver output, louder noise floor, no music and no reverb
+function applyMode() {
+  if (!A.ctx) return;
+  const t = A.ctx.currentTime, s = st.scope;
+  A.atmoBus.gain.setTargetAtTime(s ? 0 : 1, t, 0.5);
+  A.verbOut.gain.setTargetAtTime(s ? 0 : 0.9, t, 0.4);
+  applyVoice(t);
+}
+
+// each recording has its own band and noise floor
+function applyVoice(t) {
+  if (!A.ctx) return;
+  const v = voiceOf(PULSARS[st.cur]);
+  A.bandLp.frequency.setTargetAtTime(v.lp, t, 0.1);
+  A.bandLp2.frequency.setTargetAtTime(Math.max(1800, v.lp * 2), t, 0.1);
+  A.hissLp.frequency.setTargetAtTime(v.hissLp || Math.max(1000, v.lp), t, 0.1);
+  // a recorded voice already carries its own receiver noise
+  const i = st.cur, rec = PULSARS[i].rec, mod = A.mods[i];
+  A.hiss.gain.setTargetAtTime(rec ? 0 : (st.scope ? 0.16 : 0.016) * v.noise, t, 0.3);
+  A.floor.gain.setTargetAtTime(rec ? 0 : (v.floor || 0) * (st.scope ? 1 : 0.45), t, 0.3);
+  A.recSrc.forEach((g, k) => g && g.gain.setTargetAtTime(k === i ? 1 : 0, t, 0.05));
+  A.recVca.gain.setTargetAtTime(rec ? mod.dc : 0, t, 0.05);
+  A.recDepth.gain.setTargetAtTime(rec ? 1 : 0, t, 0.05);
+  A.recOut.gain.setTargetAtTime(rec ? rec.rms / mod.rms / 0.95 : 0, t, 0.05);
+  A.pWet.gain.setTargetAtTime(rec ? 0.1 : 0.4, t, 0.3);
+  applyFreqMix(engine.freqAt(t), t);
+}
+
+// one pulse as the receiver records it: noise whose power follows the pulse envelope, plus the envelope itself
+function playPulse(p, n, tp, f, amp, giant) {
+  const ctx = A.ctx, sr = ctx.sampleRate, P = 1 / f;
+  const comps = giant
+    ? [[p.comps[0][0], p.comps[0][1] * 0.4, 1]]
+    : p.comps.map(([c, s, a]) => [c + gauss() * s * 0.25, s * (0.85 + 0.3 * Math.random()), a * Math.exp(gauss() * 0.3)]);
+  let lo = Infinity, hi = -Infinity;
+  for (const [c, s] of comps) { lo = Math.min(lo, c - 5 * s); hi = Math.max(hi, c + 5 * s); }
+  // the "thud" a radio recording makes: the receiver chain rings at ~200 and ~360 Hz after each pulse
+  const pk = comps.reduce((m, c) => (c[2] > m[2] ? c : m))[0];
+  const popA = giant ? 0 : (p.pop ?? 0.6) * Math.min(amp, 1.6) * 0.3;
+  const t0 = (pk - lo) * P, tail = Math.ceil(0.09 * sr);
+  const len = Math.min(Math.max(Math.ceil((hi - lo) * P * sr), Math.ceil(t0 * sr)) + tail, sr * 2);
+  if (len < 8 || tp + lo * P < ctx.currentTime) return;
+  // structure inside a single pulse: drifting subpulses for B1919+21, random bright spikes for the rest
+  const subs = [];
+  if (p.drift) { const off = (n * p.drift.rate) % p.drift.spacing; for (let k = -4; k <= 4; k++) subs.push([k * p.drift.spacing + off, p.drift.width]); }
+  else if (!giant) { const m = 3 + (Math.random() * 4 | 0); for (let k = 0; k < m; k++) { const [c, s] = comps[Math.random() * comps.length | 0]; subs.push([c + gauss() * s, s * 0.3]); } }
+  const buf = ctx.createBuffer(1, len, sr), d = buf.getChannelData(0), dx = 1 / (P * sr);
+  // the recorded envelope: instant rise, a short hold, then a fall (B0329+54: 8 ms and 10 ms), even for sub-millisecond pulses
+  const v = voiceOf(p);
+  const hold = Math.round(v.hold * sr), rel = Math.exp(-1 / (v.rel * sr));
+  let y = 0, hc = 0;
+  for (let i = 0; i < len; i++) {
+    const x = lo + i * dx;
+    let e = 0;
+    if (x <= hi) {
+      for (const [c, s, a] of comps) e += a * Math.exp(-0.5 * ((x - c) / s) ** 2);
+      if (subs.length) { let sub = 0; for (const [c, s] of subs) sub += Math.exp(-0.5 * ((x - c) / s) ** 2); e *= 0.35 + 0.9 * Math.min(sub, 1.5); }
+      e *= amp;
+    }
+    if (e >= y) { y = e; hc = hold; } else if (hc > 0) hc--; else y *= rel;
+    d[i] = (Math.random() * 2 - 1) * 1.7 * Math.sqrt(y) * 0.3 + y * 0.12;
+    const t = i / sr - t0;
+    if (popA && t >= 0) {
+      let ring = 0;
+      for (const [fr, a, tau] of v.partials) ring += a * Math.sin(TAU * fr * t) * Math.exp(-t / tau);
+      d[i] += popA * (1 - Math.exp(-t / 0.001)) * ring;
+    }
+  }
+  const s = ctx.createBufferSource(); s.buffer = buf; s.connect(A.bufIn); s.start(tp + lo * P);
+}
+
+function setMute(m) { st.muted = m; if (A.ctx) A.out.gain.setTargetAtTime(volCurve(), A.ctx.currentTime, 0.05); }
+
+function thump(t, a) {
+  if (a < 0.02) return;
+  const ctx = A.ctx, o = ctx.createOscillator(), g = ctx.createGain();
+  o.frequency.setValueAtTime(115, t - 0.003); o.frequency.exponentialRampToValueAtTime(38, t + 0.2);
+  g.gain.setValueAtTime(0, t - 0.003); g.gain.linearRampToValueAtTime(a, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0006, t + 1.25);
+  o.connect(g); g.connect(A.thumpIn); o.start(t - 0.003); o.stop(t + 1.3);
+}
+
+// dispersion: the interstellar plasma delays low radio frequencies, so each pulse sweeps downward
+function chirp(t, a) {
+  if (a < 0.02) return;
+  const ctx = A.ctx, s = ctx.createBufferSource(), bp = A.biq('bandpass', 7000, 9), g = ctx.createGain(), pn = ctx.createStereoPanner();
+  s.buffer = A.white; pn.pan.value = (Math.random() - 0.5) * 0.4;
+  bp.frequency.setValueAtTime(7000, t - 0.06); bp.frequency.exponentialRampToValueAtTime(240, t + 0.02);
+  g.gain.setValueAtTime(0, t - 0.06); g.gain.linearRampToValueAtTime(a * 2.6, t - 0.055); g.gain.setTargetAtTime(0, t - 0.01, 0.02);
+  s.connect(bp); bp.connect(g); g.connect(pn); pn.connect(A.pulseIn);
+  s.start(t - 0.06, Math.random() * 4); s.stop(t + 0.16);
+}
+
+function crackle(t) {
+  const ctx = A.ctx, s = ctx.createBufferSource(), hp = A.biq('highpass', 2200, 0.7), g = ctx.createGain(), pn = ctx.createStereoPanner();
+  s.buffer = A.white; pn.pan.value = Math.random() * 1.6 - 0.8;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05 + Math.random() * 0.1, t + 0.0005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.004 + Math.random() * 0.01);
+  s.connect(hp); hp.connect(g); g.connect(pn); pn.connect(A.master);
+  s.start(t, Math.random() * 4); s.stop(t + 0.03);
+}
+
+function swell(t, peak = 0.3, rise = 9, hold = 6, fall = 12) {
+  const g = A.choir.gain;
+  g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+  g.linearRampToValueAtTime(peak, t + rise); g.setValueAtTime(peak, t + rise + hold); g.linearRampToValueAtTime(0, t + rise + hold + fall);
+  const V = [[730, 1090, 2440], [570, 840, 2410], [440, 1020, 2240], [300, 870, 2240]];
+  const v = V[Math.random() * V.length | 0];
+  A.formants.forEach((f, i) => f.frequency.setTargetAtTime(v[i], t + rise * 0.4, 4));
+  A.lastSwell = t; A.swellGap = 55 + Math.random() * 35;
+}
+
+function tuneSweep(t) {
+  const ctx = A.ctx, s = ctx.createBufferSource(), bp = A.biq('bandpass', 260, 11), g = ctx.createGain();
+  s.buffer = A.pink;
+  bp.frequency.setValueAtTime(260, t); bp.frequency.exponentialRampToValueAtTime(4200, t + 0.5); bp.frequency.exponentialRampToValueAtTime(700, t + 1.05);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.9, t + 0.08); g.gain.setValueAtTime(0.9, t + 0.8); g.gain.linearRampToValueAtTime(0, t + 1.15);
+  s.connect(bp); bp.connect(g); g.connect(A.master); g.connect(A.verbIn);
+  s.start(t, Math.random() * 5); s.stop(t + 1.2);
+  const w = ctx.createOscillator(), wg = ctx.createGain();
+  w.frequency.setValueAtTime(3100, t + 0.1); w.frequency.exponentialRampToValueAtTime(520, t + 0.95);
+  wg.gain.setValueAtTime(0, t + 0.1); wg.gain.linearRampToValueAtTime(0.025, t + 0.3); wg.gain.linearRampToValueAtTime(0, t + 0.98);
+  w.connect(wg); wg.connect(A.master); w.start(t + 0.1); w.stop(t + 1);
+}
+
+function pulseEvent(n, tp, f) {
+  const p = PULSARS[st.cur];
+  if (p.rec) {
+    // recorded voice: only the measured pulse-to-pulse spread, set in the quiet part of the period
+    const a = clamp(Math.exp(gauss() * p.rec.cv), 0.4, 1.8);
+    A.amps.set(n, a);
+    if (A.amps.size > 96) A.amps.delete(A.amps.keys().next().value);
+    A.recAmp.gain.setValueAtTime(a, Math.max(A.ctx.currentTime, tp - 0.25 / f));
+    return;
+  }
+  let amp = 0.8 * Math.exp(gauss() * (p.jitter ?? 0.35)); // pulse energies scatter roughly log-normally
+  if (st.cur === 0 && Math.random() < 0.05) amp = 0.04; // B1919+21 sometimes skips a pulse (nulling)
+  const giant = !!p.giant && Math.random() < p.giant;
+  if (giant) amp *= 6 + 6 * Math.random();
+  A.amps.set(n, Math.min(amp, 1.6));
+  if (A.amps.size > 96) A.amps.delete(A.amps.keys().next().value);
+  A.pAmp.gain.setValueAtTime(Math.min(amp, 1.6), Math.max(A.ctx.currentTime, tp - Math.min(0.3 / f, 0.25)));
+  const w = 1 - smooth(10, 20, f);
+  if (w > 0.01) playPulse(p, n, tp, f, amp * w, giant);
+  if (!st.scope) {
+    const a = Math.min(amp, 1.2);
+    chirp(tp, a * smooth(15, 3, f));
+    thump(tp, a * (1 - smooth(2.2, 4, f)));
+  }
+}
+
+function schedule() {
+  const ctx = A.ctx; if (!ctx) return;
+  const p = PULSARS[st.cur], now = ctx.currentTime, f = engine.freqAt(now + 0.2);
+  // interstellar scintillation: the signal slowly fades and swells over seconds
+  if (now > A.nextFade) {
+    A.fade.gain.setTargetAtTime(clamp(Math.exp(gauss() * 0.35), 0.4, 1.6), now, 0.8);
+    A.nextFade = now + 1.5 + Math.random() * 3;
+  }
+  if (f < 20 || (p.rec && f < 80)) {
+    const lead = Math.max(0.065, ...p.comps.map(([c, s]) => (5 * s - c) / f));
+    const horizon = now + 0.2 + lead;
+    let n = Math.max(A.nextPulse, Math.ceil(engine.phaseAt(now + 0.01)));
+    for (let guard = 0; guard < 40; guard++) {
+      const tp = engine.timeOfPhase(n);
+      if (tp > horizon) break;
+      if (tp - lead > now + 0.02) pulseEvent(n, tp, engine.freqAt(tp));
+      n++;
+    }
+    A.nextPulse = n;
+  } else {
+    A.nextPulse = Math.ceil(engine.phaseAt(now + 0.2));
+    if (now > A.nextScint) {
+      A.scint = 0.6 + 0.55 * Math.random();
+      A.pAmp.gain.setTargetAtTime(A.scint, now + 0.05, 0.07);
+      A.nextScint = now + 0.12 + Math.random() * 0.1;
+    }
+    // the Crab's giant pulses: a single turn now and then is many times brighter than the rest
+    if (p.giant && Math.random() < p.giant * f * 0.025) {
+      const n = Math.ceil(engine.phaseAt(now + 0.08));
+      playPulse(p, n, engine.timeOfPhase(n), f, 0.8 * (6 + 6 * Math.random()), true);
+    }
+  }
+  if (Math.random() < 0.05) crackle(now + 0.05 + Math.random() * 0.12);
+  if (st.playing && now - A.lastSwell > A.swellGap) swell(now + 0.1, 0.2 + Math.random() * 0.12);
+}
+
+// ---------- WebGL ----------
+const canvas = $('#sky');
+let G = null;
+
+const VS = `#version 300 es
+const vec2 P[3] = vec2[3](vec2(-1.,-1.), vec2(3.,-1.), vec2(-1.,3.));
+out vec2 vUv;
+void main(){ vec2 p = P[gl_VertexID]; vUv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+
+// shared by the scene and composite passes; both declare uNoise
+const SKY_COMMON = `
+float noise(vec3 x){ vec3 i = floor(x); vec3 f = fract(x); f = f*f*(3.0-2.0*f); return texture(uNoise, (i+f+0.5)/64.0).r; }
+float fbm3(vec3 p){ float s=0.0, a=0.5; for(int i=0;i<3;i++){ s += a*noise(p); p = p*2.02 + vec3(5.1,1.7,9.3); a *= 0.5; } return s/0.875; }
+float fbm5(vec3 p){ float s=0.0, a=0.5; for(int i=0;i<5;i++){ s += a*noise(p); p = p*2.03 + vec3(5.1,1.7,9.3); a *= 0.5; } return s/0.96875; }
+uvec3 pcg3d(uvec3 v){ v = v*1664525u + 1013904223u; v.x += v.y*v.z; v.y += v.z*v.x; v.z += v.x*v.y; v ^= v >> 16u; v.x += v.y*v.z; v.y += v.z*v.x; v.z += v.x*v.y; return v; }
+vec3 hash3(vec3 p){ return vec3(pcg3d(uvec3(ivec3(p) + ivec3(4096)))) * (1.0/4294967295.0); }
+// dark dust lanes of the Milky Way: they dim the glow and hide the stars behind them
+float milkyDust(vec3 d){ return smoothstep(0.46, 0.72, fbm3(d*6.0 + 11.0)*0.7 + noise(d*17.0)*0.3); }
+`;
+
+const FS_SCENE = `#version 300 es
+precision highp float;
+precision highp sampler3D;
+uniform vec2 uRes;
+uniform float uTime;
+uniform vec3 uCamPos, uCamR, uCamU, uCamF;
+uniform float uTanHalf;
+uniform vec3 uSpin, uE1, uE2;
+uniform vec3 uAx, uAy, uAz;
+uniform vec3 uM1, uM2, uMe1, uMe2;
+uniform float uA1, uA2, uDuty1, uDuty2;
+uniform float uBeamW, uBlur, uBeamI, uFade, uHdr;
+uniform float uSinA, uCosA, uTwist, uBeamLen;
+// per-pulsar look: beam width and second-beam strength, magnetosphere size and glow, surface heat and polar caps
+uniform float uCore, uBeam2, uFieldExt, uFieldI, uSurf, uCaps;
+uniform vec3 uBeamTint, uSurfTint;
+uniform vec2 uSwirl;
+uniform vec4 uEnv;
+uniform vec3 uNebA, uNebB, uGal, uGalC, uClusterDir, uCompPos;
+uniform sampler3D uNoise;
+out vec4 outColor;
+
+const float R = 0.16;
+
+${SKY_COMMON}
+
+// diffuse sky only; point stars are drawn at full resolution in the composite pass
+vec3 sky(vec3 d){
+  vec3 col = vec3(0.0);
+  float lat = dot(d, uGal);
+  float band = exp(-lat*lat*10.0), core = exp(-lat*lat*55.0);
+  float bulge = exp((dot(d, uGalC) - 1.0)*2.4);
+  float w = fbm3(d*3.0 + 7.0);
+  float cloud = fbm5(d*5.7 + w*1.8 + 3.0);
+  float mottle = noise(d*60.0)*0.5 + noise(d*130.0)*0.5;
+  float dust = milkyDust(d) * core;
+  float lanes = pow(1.0 - abs(2.0*fbm3(d*9.0 + w*2.0 + 5.0) - 1.0), 6.0) * core;
+  float lum = band * (0.2 + 1.3*cloud*cloud) * (0.55 + 0.9*mottle) * (0.5 + 1.6*bulge);
+  lum *= (1.0 - 0.88*dust) * (1.0 - 0.55*lanes);
+  vec3 tint = mix(vec3(0.55,0.62,0.9), vec3(1.0,0.83,0.64), clamp(core*0.7 + bulge*0.6, 0.0, 1.0));
+  col += tint * lum * 0.038;
+  col += vec3(1.0,0.36,0.48) * smoothstep(0.74, 0.9, fbm3(d*14.0 + 21.0)) * band * (1.0 - dust) * 0.035;
+  // deep, dark veils of gas in indigo and teal that drift very slowly: depth without brightness
+  vec3 gq = d*1.5 + vec3(0.0, uTime*0.003, uTime*0.0015);
+  float veil = fbm5(gq + fbm3(gq*1.8 + 9.0)*1.6);
+  float hue = fbm3(gq*2.3 + 31.0);
+  float gas = smoothstep(0.42, 0.86, veil);
+  col += mix(vec3(0.14,0.08,0.40), vec3(0.03,0.30,0.36), smoothstep(0.35, 0.65, hue)) * gas*gas * 0.09;
+  if(uEnv.y > 0.001) col += uEnv.y * vec3(1.0,0.68,0.4) * exp((dot(d, uClusterDir) - 1.0)*3.5) * 0.045;
+  if(uEnv.x > 0.001){
+    vec3 q = d*1.8 + 4.0;
+    float w1 = fbm5(q);
+    float rr = fbm5(q*1.7 + w1*2.2 + vec3(0.0,0.0,uTime*0.004));
+    float ridge = 1.0 - abs(2.0*rr - 1.0);
+    float fil = pow(ridge, 10.0) * smoothstep(0.35, 0.7, w1);
+    float haze = smoothstep(0.38, 0.85, w1);
+    col += uEnv.x * (uNebA*fil*0.55 + uNebB*haze*0.05);
+  }
+  return col;
+}
+
+vec3 volume(vec3 ro, vec3 rd, float tMax, float jit){
+  const float B = 7.0;
+  float b = dot(ro, rd), c = dot(ro, ro) - B*B, disc = b*b - c;
+  if(disc <= 0.0) return vec3(0.0);
+  float sq = sqrt(disc);
+  float t = max(0.0, -b - sq), t1 = min(tMax, -b + sq);
+  vec3 acc = vec3(0.0);
+  float w2 = uBeamW*uBeamW;
+  t += jit * (0.02 + 0.075*length(ro + rd*t));
+  for(int i = 0; i < 96; i++){
+    if(t > t1) break;
+    vec3 p = ro + rd*t;
+    float r = length(p);
+    float dt = 0.02 + 0.075*r;
+    vec3 ln = vec3(dot(p,uAx), dot(p,uAy), dot(p,uAz)) / r;
+    vec3 e = vec3(0.0);
+
+    if(uBlur > 0.001){
+      // the true spin is far beyond the frame rate: a faint time-averaged cone with swirling streaks behind the drawn beams
+      float th = acos(clamp(ln.y, -1.0, 1.0));
+      float radial = smoothstep(R, R*3.0, r) / (1.0 + r*r*0.5) * smoothstep(1.0, 3.6, t);
+      float avg = (exp(-(th-uA1)*(th-uA1)/w2)*uDuty1 + exp(-(th-uA2)*(th-uA2)/w2)*uDuty2) * 0.3 * min(1.0, 0.18/uBeamW);
+      vec3 nW = p / r;
+      vec2 cs = vec2(dot(nW,uE1), dot(nW,uE2));
+      cs = vec2(cs.x*uSwirl.x - cs.y*uSwirl.y, cs.x*uSwirl.y + cs.y*uSwirl.x);
+      float streak = noise(vec3(cs*1.8, th*14.0 + r*2.0 - uTime*2.0));
+      float haze = avg * (0.3 + 1.4*streak*streak) * radial * uBlur;
+      if(haze > 0.0015) e += vec3(0.36,0.45,1.0) * haze * uBeamI;
+    }
+
+    // magnetosphere: faint plasma threads along the dipole field, fading quickly away from the star
+    if(r < uFieldExt + 0.05){
+      float cm = dot(ln, uM1);
+      float L = r / max(1.0 - cm*cm, 1e-3);
+      if(L < uFieldExt){
+        float u = log(L / R) * 1.4;
+        float shell = pow(0.5 + 0.5*cos(6.2832*u), 10.0);
+        float phm = atan(dot(ln,uMe2), dot(ln,uMe1));
+        float stripe = pow(0.5 + 0.5*cos(phm*5.0), 14.0);
+        float env = smoothstep(R, R*1.4, r) * exp(-L*2.4) * smoothstep(uFieldExt, uFieldExt*0.45, L);
+        float flick = 0.55 + 0.6*noise(vec3(L*9.0 - uTime*2.5, phm*2.0, 3.0));
+        e += vec3(0.55,0.66,1.0) * shell * stripe * env * flick * 2.2 * uFieldI;
+      }
+      e += vec3(0.32,0.45,1.0) * exp(-r*5.5) * 0.05;
+    }
+
+    if(uEnv.z > 0.001){
+      float h = dot(p, uSpin);
+      vec3 pr = p - uSpin*h;
+      float rho = length(pr);
+      if(rho > 0.5 && rho < 3.6 && abs(h) < 1.2){
+        float az = atan(dot(pr,uE2), dot(pr,uE1));
+        vec3 cq = vec3(cos(az)*3.0, sin(az)*3.0, h*2.5 + rho*1.6 - uTime*0.12);
+        float cl = noise(cq)*0.6 + noise(cq*2.1 + 3.0)*0.4;
+        float dr = rho - 1.9;
+        float tor = exp(-(dr*dr*3.0 + h*h*12.0)) * (0.15 + 1.8*cl*cl);
+        float dr2 = rho - 1.0;
+        float ring = exp(-(dr2*dr2*70.0 + h*h*220.0)) * (0.3 + 1.4*noise(vec3(cos(az)*9.0, sin(az)*9.0, uTime*0.3)));
+        e += uEnv.z * (vec3(0.42,0.6,1.0)*tor*0.3 + vec3(0.75,0.88,1.0)*ring*1.3);
+      }
+      float ah = abs(h);
+      if(rho < 0.55 && ah < 4.0){
+        vec3 kink = (uE1*sin(h*1.7 + uTime*0.3)*0.06 + uE2*cos(h*1.3)*0.05) * ah;
+        float rj = length(pr - kink);
+        float jw = 0.03 + ah*0.035;
+        float jet = exp(-rj*rj/(jw*jw)) * smoothstep(0.15, 0.5, ah) * exp(-ah*0.55) * (h > 0.0 ? 1.0 : 0.55);
+        jet *= 0.35 + 1.3*noise(vec3(h*2.5 - sign(h)*uTime*0.9, rj*8.0, 1.0));
+        e += uEnv.z * vec3(0.55,0.75,1.0) * jet * 2.2;
+      }
+    }
+    acc += e * dt;
+    t += dt;
+  }
+  return acc;
+}
+
+// Beam centre line. Light leaves the pole at c while the star keeps turning, so further out
+// the beam lags behind the pole: a conical spiral that starts to bend a little beyond the star.
+vec3 beamPoint(float s, float sgn){
+  float x = max(s - 0.35, 0.0);
+  float psi = uTwist * (x - 0.6*(1.0 - exp(-x/0.6))); // starts gently, then an Archimedean spiral
+  vec3 l = sgn * vec3(uSinA*cos(psi), uCosA, uSinA*sin(psi));
+  return (uAx*l.x + uAy*l.y + uAz*l.z) * s;
+}
+
+// thin laser-like beams, drawn analytically as glow around a polyline (no step aliasing)
+vec3 beams(vec3 ro, vec3 rd, float tMax, float pix){
+  const int NS = 40;
+  vec3 col = vec3(0.0);
+  float ds = (uBeamLen - R) / float(NS);
+  for(int k = 0; k < 2; k++){
+    float sgn = k == 0 ? 1.0 : -1.0;
+    float best = 1e9, bs = 0.0, bt = 0.0;
+    vec3 A = beamPoint(R, sgn);
+    for(int i = 1; i <= NS; i++){
+      float s1 = R + ds*float(i);
+      vec3 B = beamPoint(s1, sgn);
+      vec3 e = B - A, w0 = ro - A;
+      float a = dot(e,e), b = dot(rd,e), dd = dot(rd,w0), ee = dot(e,w0);
+      float den = a - b*b;
+      float u = den > 1e-8 ? clamp((ee - dd*b)/den, 0.0, 1.0) : 0.0;
+      float t = max(u*b - dd, 0.0);
+      u = clamp(dot(ro + rd*t - A, e)/a, 0.0, 1.0);
+      vec3 q = ro + rd*t - (A + e*u);
+      float d2 = dot(q, q);
+      if(d2 < best && t < tMax){ best = d2; bs = s1 - ds*(1.0 - u); bt = t; }
+      A = B;
+    }
+    if(best < 0.5){
+      float sc = max((0.003 + 0.011*bs)*uCore, pix*bt*0.7);
+      float sh = (0.03 + 0.09*bs)*mix(1.0, uCore, 0.6);
+      float I = smoothstep(R, R*1.8, bs) / (1.0 + 0.4*bs*bs) * smoothstep(uBeamLen, uBeamLen*0.5, bs);
+      float flow = 0.55 + 0.9*noise(vec3(bs*4.5 - uTime*7.0, sgn*5.0, 0.5));
+      // a wider beam spreads the same light over more sky, so it is dimmer per pixel
+      col += (uBeamTint*exp(-best/(sc*sc))*5.0/pow(uCore, 0.6) + vec3(0.28,0.45,1.0)*exp(-best/(sh*sh))*0.7/uCore) * I * flow * (k == 0 ? 1.0 : uBeam2);
+    }
+  }
+  return col * uBeamI;
+}
+
+float hitSphere(vec3 ro, vec3 rd, float rad){ float b = dot(ro,rd), c = dot(ro,ro) - rad*rad, h = b*b - c; return h < 0.0 ? -1.0 : -b - sqrt(h); }
+
+void main(){
+  vec2 fc = gl_FragCoord.xy;
+  vec2 ndc = (fc - 0.5*uRes) / (0.5*uRes.y);
+  vec3 rd = normalize(uCamF + (ndc.x*uCamR + ndc.y*uCamU)*uTanHalf);
+  vec3 ro = uCamPos;
+  float pix = 2.0*uTanHalf/uRes.y;
+  float tHit = hitSphere(ro, rd, R);
+  float tc = -dot(ro, rd);
+  vec3 pc = ro + rd*tc;
+  float b2 = dot(pc, pc);
+  vec3 col = vec3(0.0);
+  if(tHit < 0.0){
+    float bb = sqrt(b2);
+    float defl = min(0.012 / max(bb, R), 0.3) * step(0.0, tc);
+    vec3 toward = -pc / max(bb, 1e-5);
+    col += sky(normalize(rd*cos(defl) + toward*sin(defl)));
+    col += (vec3(0.55,0.7,1.0) * 0.003 / max(b2 - R*R*0.98, 0.0009) + vec3(0.32,0.48,1.0) * 0.03 * exp(-b2*7.0)) * step(0.0, tc);
+  } else {
+    vec3 nW = (ro + rd*tHit) / R;
+    vec3 nl = vec3(dot(nW,uAx), dot(nW,uAy), dot(nW,uAz));
+    float mu = max(dot(nW, -rd), 0.0);
+    float cap = exp(-(1.0 - dot(nl,uM1))*40.0) + exp(-(1.0 - dot(nl,uM2))*40.0);
+    vec2 sc = vec2(dot(nW,uE1), dot(nW,uE2));
+    sc = vec2(sc.x*uSwirl.x - sc.y*uSwirl.y, sc.x*uSwirl.y + sc.y*uSwirl.x);
+    float bands = noise(vec3(sc*1.5, acos(clamp(dot(nW,uSpin), -1.0, 1.0))*16.0));
+    float tex = mix(fbm3(nl*7.0 + 2.0), 0.2 + 0.9*bands, 0.5*uBlur);
+    vec3 surf = uSurfTint * (2.0 + 2.2*tex) * (0.35 + 0.65*sqrt(mu)) * uSurf;
+    surf += vec3(0.85,0.93,1.0) * cap * 40.0 * uCaps;
+    surf += vec3(0.5,0.65,1.0) * pow(1.0 - mu, 3.0) * 3.0;
+    col += surf;
+  }
+  if(uEnv.w > 0.001){
+    vec3 v = uCompPos - ro; float t2 = dot(v, rd);
+    if(t2 > 0.0 && (tHit < 0.0 || t2 < tHit)){
+      float bc = dot(v,v) - t2*t2;
+      col += uEnv.w * vec3(0.85,0.9,1.0) * 0.00025 / (bc + 0.00004);
+    }
+  }
+  float jit = fract(52.9829189*fract(dot(fc, vec2(0.06711056, 0.00583715))));
+  float tEnd = tHit < 0.0 ? 1e4 : tHit;
+  col += volume(ro, rd, tEnd, jit);
+  col += beams(ro, rd, tEnd, pix);
+  outColor = vec4(col * uFade * uHdr, 1.0);
+}`;
+
+const FS_DOWN = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc; uniform vec2 uTexel; uniform float uPrefilter, uThresh;
+in vec2 vUv; out vec4 o;
+vec3 s(vec2 d){ return texture(uSrc, vUv + d*uTexel).rgb; }
+void main(){
+  vec3 c = s(vec2(0.0))*0.125
+    + (s(vec2(-2.,2.)) + s(vec2(2.,2.)) + s(vec2(-2.,-2.)) + s(vec2(2.,-2.)))*0.03125
+    + (s(vec2(0.,2.)) + s(vec2(-2.,0.)) + s(vec2(2.,0.)) + s(vec2(0.,-2.)))*0.0625
+    + (s(vec2(-1.,1.)) + s(vec2(1.,1.)) + s(vec2(-1.,-1.)) + s(vec2(1.,-1.)))*0.125;
+  if(uPrefilter > 0.5){
+    float br = max(c.r, max(c.g, c.b));
+    float knee = uThresh*0.6;
+    float soft = clamp(br - uThresh + knee, 0.0, 2.0*knee);
+    soft = soft*soft/(4.0*knee + 1e-4);
+    c *= max(soft, br - uThresh)/max(br, 1e-4);
+  }
+  o = vec4(c, 1.0);
+}`;
+
+const FS_UP = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc; uniform vec2 uTexel;
+in vec2 vUv; out vec4 o;
+void main(){
+  vec2 d = uTexel;
+  vec3 c = texture(uSrc, vUv).rgb*4.0
+    + (texture(uSrc, vUv+vec2(-d.x,0.)).rgb + texture(uSrc, vUv+vec2(d.x,0.)).rgb + texture(uSrc, vUv+vec2(0.,-d.y)).rgb + texture(uSrc, vUv+vec2(0.,d.y)).rgb)*2.0
+    + texture(uSrc, vUv-d).rgb + texture(uSrc, vUv+d).rgb + texture(uSrc, vUv+vec2(d.x,-d.y)).rgb + texture(uSrc, vUv+vec2(-d.x,d.y)).rgb;
+  o = vec4(c/16.0, 1.0);
+}`;
+
+const FS_COMP = `#version 300 es
+precision highp float;
+precision highp sampler3D;
+uniform sampler2D uScene, uBloom, uB2;
+uniform sampler3D uNoise;
+uniform float uExposure, uBloomI, uFlash, uTime, uHdrInv, uTune, uFade, uTanHalf;
+uniform vec2 uOutRes;
+uniform vec3 uCamPos, uCamR, uCamU, uCamF, uGal, uClusterDir;
+uniform vec4 uEnv;
+in vec2 vUv; out vec4 o;
+const float R = 0.16;
+${SKY_COMMON}
+float h12(vec2 p){ vec3 p3 = fract(vec3(p.xyx)*0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y)*p3.z); }
+vec3 aces(vec3 x){ return clamp((x*(2.51*x + 0.03))/(x*(2.43*x + 0.59) + 0.14), 0.0, 1.0); }
+
+vec3 starTint(float h){
+  vec3 c = mix(vec3(1.0,0.66,0.44), vec3(1.0,0.93,0.85), smoothstep(0.0,0.3,h));
+  return mix(c, vec3(0.8,0.88,1.0), smoothstep(0.55,0.95,h));
+}
+// one star per occupied cell; most are faint, a few are bright and get a soft halo
+vec3 starLayer(vec3 d, float scale, float dens, float pix, float boost, float warm){
+  vec3 p = d*scale; vec3 c = floor(p); vec3 h = hash3(c);
+  if(h.x > dens) return vec3(0.0);
+  vec3 sp = normalize(c + 0.2 + 0.6*hash3(c + 31.0)) * scale;
+  float dd = length(p - sp), w = pix*scale*0.6;
+  float r2 = dd*dd/(w*w);
+  float lum = pow(h.y, 16.0)*60.0 + pow(h.y, 4.0)*0.9 + 0.05;
+  float glow = lum > 3.0 ? lum*0.012/(r2 + 3.0) : 0.0;
+  return starTint(mix(h.z, h.z*0.35, warm)) * (exp(-r2)*lum + glow) * boost;
+}
+// stars crowd into the Milky Way and vanish behind its dust lanes
+vec3 starField(vec3 d, float pix){
+  float lat = dot(d, uGal);
+  float band = exp(-lat*lat*10.0);
+  float m = (0.35 + 1.6*band) * (1.0 - 0.85*milkyDust(d)*exp(-lat*lat*55.0));
+  vec3 s = starLayer(d, 60.0, 0.012, pix, 0.9, 0.0)
+         + starLayer(d, 150.0, 0.022*m, pix, 0.28, 0.0)
+         + starLayer(d, 340.0, 0.035*m, pix, 0.1, 0.0)
+         + starLayer(d, 760.0, 0.04*m*m, pix, 0.045, 0.0);
+  if(uEnv.y > 0.001){
+    float cd = exp((dot(d, uClusterDir) - 1.0)*3.5);
+    s += uEnv.y * (starLayer(d, 300.0, 0.06 + 0.45*cd, pix, 0.4, 1.0) + starLayer(d, 150.0, 0.015 + 0.2*cd, pix, 1.0, 1.0));
+  }
+  return s;
+}
+
+void main(){
+  vec2 uv = vUv;
+  if(uTune > 0.001){ float row = floor(uv.y*140.0); uv.x += (h12(vec2(row, floor(uTime*30.0))) - 0.5)*0.014*uTune; }
+  vec2 cc = uv - 0.5;
+  float ca = 0.0025 + 0.012*uTune;
+  vec3 col = vec3(texture(uScene, uv - cc*ca).r, texture(uScene, uv).g, texture(uScene, uv + cc*ca).b);
+  col += texture(uBloom, uv).rgb * uBloomI;
+  vec3 st = vec3(0.0);
+  for(int i = -4; i <= 4; i++){ float f = float(i)/4.0; st += texture(uB2, vec2(uv.x + f*0.3, uv.y)).rgb * exp(-abs(f)*3.5) * 2.0; }
+  col += st * vec3(0.45,0.65,1.0) * (0.025 + 0.07*uFlash);
+  col *= uHdrInv;
+
+  // point stars at full output resolution, bent by the star's gravity like the diffuse sky
+  vec2 ndc = (gl_FragCoord.xy - 0.5*uOutRes) / (0.5*uOutRes.y);
+  vec3 rd = normalize(uCamF + (ndc.x*uCamR + ndc.y*uCamU)*uTanHalf);
+  float tc = -dot(uCamPos, rd);
+  vec3 pc = uCamPos + rd*tc;
+  float bb = length(pc);
+  if(bb > R || tc < 0.0){
+    float defl = min(0.012 / max(bb, R), 0.3) * step(0.0, tc);
+    vec3 d =normalize(rd*cos(defl) - pc/max(bb, 1e-5)*sin(defl));
+    col += starField(d, 2.0*uTanHalf/uOutRes.y) * uFade;
+  }
+
+  col *= uExposure * (1.0 + 0.3*uFlash);
+  col = aces(col);
+  col = pow(col, vec3(0.4545));
+  col = mix(col, vec3(dot(col, vec3(0.299,0.587,0.114))), 0.5*uTune);
+  col = pow(col, vec3(1.1));        // deeper blacks
+  col *= 1.0 - 1.1*dot(cc, cc);     // heavier vignette pulls the eye to the star
+  col += (h12(gl_FragCoord.xy + fract(uTime*7.31)*391.0) - 0.5) * (0.016 + 0.1*uTune);
+  o = vec4(col, 1.0);
+}`;
+
+function initGL() {
+  const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, premultipliedAlpha: false, powerPreference: 'high-performance' });
+  if (!gl) return null;
+  const floatExt = gl.getExtension('EXT_color_buffer_float');
+  const compile = (type, src) => {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  };
+  const vs = compile(gl.VERTEX_SHADER, VS);
+  const program = fs => {
+    const p = gl.createProgram(); gl.attachShader(p, vs); gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); u[info.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, info.name); }
+    return { p, u };
+  };
+  const P = { scene: program(FS_SCENE), down: program(FS_DOWN), up: program(FS_UP), comp: program(FS_COMP) };
+  gl.bindVertexArray(gl.createVertexArray());
+
+  const N = 64, rnd = mulberry(1967), data = new Uint8Array(N * N * N);
+  for (let i = 0; i < data.length; i++) data[i] = rnd() * 256 | 0;
+  const noise = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_3D, noise); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage3D(gl.TEXTURE_3D, 0, gl.R8, N, N, N, 0, gl.RED, gl.UNSIGNED_BYTE, data);
+  for (const k of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER]) gl.texParameteri(gl.TEXTURE_3D, k, gl.LINEAR);
+  for (const k of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_3D, k, gl.REPEAT);
+
+  let fmt = floatExt ? { internal: gl.RGBA16F, type: gl.HALF_FLOAT, hdr: 1 } : null;
+  const target = (w, h) => {
+    const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, fmt.internal, w, h, 0, gl.RGBA, fmt.type, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    return { t, f, w, h, ok };
+  };
+  if (fmt) { const probe = target(4, 4); if (!probe.ok) fmt = null; gl.deleteTexture(probe.t); gl.deleteFramebuffer(probe.f); }
+  if (!fmt) fmt = { internal: gl.RGBA8, type: gl.UNSIGNED_BYTE, hdr: 0.25 };
+
+  return { gl, P, noise, fmt, target, T: null, scale: innerWidth < 800 ? 0.5 : 0.62, cool: 0, ft: [] };
+}
+
+function sizeTargets() {
+  if (!G) return;
+  const { gl } = G;
+  // output at CSS pixels: on scaled laptop screens 1.5x density would cost 2.25x the work for little gain
+  const dpr = Math.min(devicePixelRatio || 1, 1);
+  canvas.width = Math.max(2, Math.round(innerWidth * dpr));
+  canvas.height = Math.max(2, Math.round(innerHeight * dpr));
+  if (G.T) { for (const t of [G.T.scene, ...G.T.bloom]) { gl.deleteTexture(t.t); gl.deleteFramebuffer(t.f); } }
+  const budget = Math.sqrt(0.75e6 / (canvas.width * canvas.height));
+  const s = Math.min(G.scale, budget);
+  const w = Math.max(2, Math.round(canvas.width * s)), h = Math.max(2, Math.round(canvas.height * s));
+  const scene = G.target(w, h), bloom = [];
+  let bw = Math.max(1, w >> 1), bh = Math.max(1, h >> 1);
+  do { bloom.push(G.target(bw, bh)); bw >>= 1; bh >>= 1; } while (bloom.length < 6 && bw >= 4 && bh >= 4);
+  G.T = { scene, bloom };
+}
+
+function uni(prog, name, v) {
+  const loc = prog.u[name]; if (loc == null) return;
+  const gl = G.gl;
+  if (typeof v === 'number') gl.uniform1f(loc, v);
+  else if (v.length === 2) gl.uniform2fv(loc, v);
+  else if (v.length === 3) gl.uniform3fv(loc, v);
+  else gl.uniform4fv(loc, v);
+}
+
+function drawGL(U) {
+  const { gl, P, T } = G;
+  const tri = () => gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.disable(gl.BLEND);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, T.scene.f); gl.viewport(0, 0, T.scene.w, T.scene.h);
+  gl.useProgram(P.scene.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_3D, G.noise); gl.uniform1i(P.scene.u.uNoise, 0);
+  uni(P.scene, 'uRes', [T.scene.w, T.scene.h]);
+  for (const k in U) uni(P.scene, k, U[k]);
+  tri();
+
+  gl.useProgram(P.down.p); gl.uniform1i(P.down.u.uSrc, 0);
+  uni(P.down, 'uThresh', 0.9 * G.fmt.hdr);
+  let src = T.scene;
+  T.bloom.forEach((dst, i) => {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, dst.f); gl.viewport(0, 0, dst.w, dst.h);
+    gl.bindTexture(gl.TEXTURE_2D, src.t);
+    uni(P.down, 'uTexel', [1 / src.w, 1 / src.h]); uni(P.down, 'uPrefilter', i === 0 ? 1 : 0);
+    tri(); src = dst;
+  });
+
+  gl.useProgram(P.up.p); gl.uniform1i(P.up.u.uSrc, 0);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+  for (let i = T.bloom.length - 1; i > 0; i--) {
+    const s = T.bloom[i], d = T.bloom[i - 1];
+    gl.bindFramebuffer(gl.FRAMEBUFFER, d.f); gl.viewport(0, 0, d.w, d.h);
+    gl.bindTexture(gl.TEXTURE_2D, s.t); uni(P.up, 'uTexel', [1 / s.w, 1 / s.h]); tri();
+  }
+  gl.disable(gl.BLEND);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.useProgram(P.comp.p);
+  const bl = T.bloom, pickB = i => bl[Math.min(i, bl.length - 1)];
+  [[T.scene, 'uScene'], [bl[0], 'uBloom'], [pickB(2), 'uB2']].forEach(([t, name], i) => {
+    gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, t.t); gl.uniform1i(P.comp.u[name], i);
+  });
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_3D, G.noise); gl.uniform1i(P.comp.u.uNoise, 4);
+  gl.activeTexture(gl.TEXTURE0);
+  for (const k in U) uni(P.comp, k, U[k]);
+  uni(P.comp, 'uOutRes', [canvas.width, canvas.height]);
+  uni(P.comp, 'uExposure', 1.05); uni(P.comp, 'uBloomI', 0.12); uni(P.comp, 'uHdrInv', 1 / G.fmt.hdr);
+  uni(P.comp, 'uFlash', U.__flash); uni(P.comp, 'uTime', U.uTime); uni(P.comp, 'uTune', st.tune);
+  tri();
+}
+
+function adaptResolution(dt) {
+  G.ft.push(dt); if (G.ft.length < 40) return;
+  const avg = G.ft.reduce((a, b) => a + b, 0) / G.ft.length; G.ft.length = 0;
+  if (performance.now() < G.cool) return;
+  let next = G.scale;
+  if (avg > 0.024 && G.scale > 0.34) next = G.scale * 0.84;
+  else if (avg < 0.0185 && G.scale < 1) next = Math.min(1, G.scale * 1.08);
+  if (next !== G.scale) { G.scale = next; sizeTargets(); G.cool = performance.now() + 1800; }
+}
+
+try { G = initGL(); } catch (e) { console.error(e); G = null; }
+if (G) {
+  sizeTargets();
+  canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); G = null; });
+} else {
+  const m = document.createElement('p'); m.className = 'glerr';
+  m.textContent = 'Браузер не дал WebGL2, поэтому звезды не видно. Звук работает.';
+  document.body.appendChild(m);
+}
+addEventListener('resize', () => { sizeTargets(); });
+
+// galactic plane and backdrop directions, fixed relative to the first view
+const camBasis = (pos, tilt) => {
+  const F = norm(mul(pos, -1));
+  let Rv = norm(cross(F, S_AXIS)), Uv = cross(Rv, F);
+  const c = Math.cos(tilt), s = Math.sin(tilt);
+  return { F, R: add(mul(Rv, c), mul(Uv, s)), U: sub(mul(Uv, c), mul(Rv, s)) };
+};
+const B0 = camBasis(O_VIEW, 0);
+const GAL = norm(add(cross(B0.F, norm(add(B0.R, mul(B0.U, 0.55)))), mul(B0.F, 0.18)));
+const CLUSTER_DIR = norm(add(B0.F, add(mul(B0.R, 0.55), mul(B0.U, 0.2))));
+const GALC = (() => { const g = add(B0.F, mul(B0.R, -0.9)); return norm(sub(g, mul(GAL, dot(g, GAL)))); })();
+const COMP_POS = add(mul(B0.F, 2.2), add(mul(B0.R, 1.35), mul(B0.U, 0.28)));
+
+// ---------- pulse stack (CP 1919 style) ----------
+const wf = $('#wf'), wctx = wf.getContext('2d');
+const WF = { lines: [], max: 46, n: 0, acc: 0, lastPulse: null, mode: '' };
+const css = getComputedStyle(document.documentElement);
+const C_VOID = css.getPropertyValue('--void').trim() || '#03040a';
+const C_INK = css.getPropertyValue('--ink').trim() || '#dde6f2';
+function wfSize() { const d = Math.min(devicePixelRatio || 1, 2); wf.width = 210 * d; wf.height = 250 * d; wctx.setTransform(d, 0, 0, d, 0, 0); wfDraw(); }
+function gauss() { return Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(TAU * Math.random()); }
+function wfAdd(p, amp, folds) {
+  const N = 150, arr = new Float32Array(N), [w0, w1] = p.win, na = 0.07 / Math.sqrt(folds);
+  const off = p.drift ? (WF.n * p.drift.rate) % p.drift.spacing : 0;
+  for (let i = 0; i < N; i++) {
+    const x = w0 + (w1 - w0) * i / (N - 1);
+    let v = profileAt(p, x);
+    if (p.drift) { let sub = 0; for (let k = -4; k <= 4; k++) sub += Math.exp(-0.5 * ((x - (k * p.drift.spacing + off)) / p.drift.width) ** 2); v *= 0.3 + 0.95 * sub; }
+    arr[i] = v * amp + gauss() * na;
+  }
+  WF.lines.push(arr); if (WF.lines.length > WF.max) WF.lines.shift(); WF.n++;
+  wfDraw();
+}
+function wfDraw() {
+  const W = 210, H = 250, c = wctx, M = WF.max, L = WF.lines.length;
+  c.fillStyle = C_VOID; c.fillRect(0, 0, W, H);
+  const top = 34, step = (H - 8 - top) / M, ampPx = 30, x0 = 12, x1 = W - 12;
+  c.lineWidth = 1; c.strokeStyle = C_INK; c.lineJoin = 'round';
+  for (let j = 0; j < L; j++) {
+    const line = WF.lines[j], y0 = top + (M - L + j) * step, N = line.length;
+    const trace = () => { for (let i = 0; i < N; i++) { const x = x0 + (x1 - x0) * i / (N - 1), y = y0 - Math.max(-0.12, line[i]) * ampPx; i ? c.lineTo(x, y) : c.moveTo(x, y); } };
+    c.beginPath(); trace(); c.lineTo(x1, y0 + step * 2); c.lineTo(x0, y0 + step * 2); c.closePath(); c.fill();
+    c.beginPath(); trace(); c.stroke();
+  }
+}
+const plural = (n, one, few, many) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many; };
+function wfCaption(text) { if (WF.mode !== text) { WF.mode = text; $('#wfCap').textContent = text; } }
+wfSize();
+
+// ---------- UI ----------
+const ui = $('#ui'), gate = $('#gate'), skipBtn = $('#skip'), narrEl = $('#narr');
+const picker = $('#picker');
+PULSARS.forEach((p, i) => {
+  const b = document.createElement('button');
+  b.className = 'pk'; b.type = 'button'; b.dataset.i = i;
+  b.innerHTML = `<span class="f">${i + 1} · ${p.chip}</span><b>${p.key}</b><span>${p.alias}</span>`;
+  b.addEventListener('click', () => selectPulsar(i));
+  picker.appendChild(b);
+});
+
+function updateHUD(p) {
+  $('#alias').textContent = p.alias; $('#pname').textContent = p.key;
+  $('#rPeriod').textContent = p.period; $('#rFreq').textContent = p.freq; $('#rDist').textContent = p.dist;
+  $('#pdesc').textContent = p.desc;
+  picker.querySelectorAll('.pk').forEach((b, i) => b.setAttribute('aria-current', i === st.cur ? 'true' : 'false'));
+}
+
+let narrTok = 0;
+function narrate(text, hold = 4.6) {
+  const tok = ++narrTok, wasOn = narrEl.classList.contains('on');
+  narrEl.classList.remove('on');
+  setTimeout(() => {
+    if (tok !== narrTok) return;
+    narrEl.textContent = text; narrEl.classList.add('on');
+    setTimeout(() => { if (tok === narrTok) narrEl.classList.remove('on'); }, hold * 1000);
+  }, wasOn ? 900 : 30);
+}
+
+function selectPulsar(i) {
+  if (!st.started || st.intro || i === st.cur) return;
+  st.cur = i;
+  const p = PULSARS[i], f = effFreq(p);
+  updateHUD(p);
+  st.tuneT = 0;
+  WF.lines.length = 0; WF.n = 0; WF.acc = 0; WF.lastPulse = null; wfDraw();
+  if (A.ctx) {
+    const t = A.ctx.currentTime, g = A.pMute.gain;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0, t + 0.3);
+    tuneSweep(t + 0.04);
+    const tSwap = t + 0.65;
+    engine.setFreq(f, tSwap); applyFreqMix(f, tSwap); applyVoice(tSwap);
+    setTimeout(() => A.osc.setPeriodicWave(A.waves[i]), 640);
+    g.setValueAtTime(0, tSwap + 0.15); g.linearRampToValueAtTime(1, tSwap + 1.6);
+    A.nextPulse = 0;
+    if (t - A.lastSwell > 20) swell(t + 0.4, 0.22, 5, 3, 10);
+  } else engine.setFreq(f, audioNow());
+  narrate(p.line, 4.2);
+}
+
+const tsIn = $('#timeScale'), tsOut = $('#tsOut');
+function readTimeScale() { return Math.pow(10, -(1 - +tsIn.value) * 3.3); }
+function showTimeScale() {
+  const s = effScale(PULSARS[st.cur]);
+  tsOut.textContent = s > 0.995 ? '×1' : '×1/' + Math.round(1 / s).toLocaleString('ru-RU');
+}
+let tsPending = false;
+tsIn.addEventListener('input', () => {
+  st.timeScale = readTimeScale(); showTimeScale();
+  if (tsPending) return; tsPending = true;
+  requestAnimationFrame(() => {
+    tsPending = false;
+    const f = effFreq(PULSARS[st.cur]);
+    if (A.ctx) engine.retune(f);
+    else engine.setFreq(f, audioNow());
+  });
+});
+
+const volIn = $('#vol');
+volIn.addEventListener('input', () => {
+  st.vol = +volIn.value; $('#volOut').textContent = Math.round(st.vol * 100);
+  if (A.ctx) A.out.gain.setTargetAtTime(volCurve(), A.ctx.currentTime, 0.05);
+});
+
+const mAtmo = $('#mAtmo'), mScope = $('#mScope');
+function setScope(v) {
+  st.scope = v;
+  mAtmo.setAttribute('aria-pressed', v ? 'false' : 'true'); mScope.setAttribute('aria-pressed', v ? 'true' : 'false');
+  applyMode();
+}
+mAtmo.addEventListener('click', () => setScope(false));
+mScope.addEventListener('click', () => setScope(true));
+
+const ZOOM_MIN = 2.6, ZOOM_MAX = 18;
+const zoomBy = k => { st.distT = clamp(st.distT * k, ZOOM_MIN, ZOOM_MAX); };
+
+function fullscreen() {
+  const el = document.documentElement;
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  else el.requestFullscreen?.().catch(() => {});
+}
+$('#bFull').addEventListener('click', fullscreen);
+function toggleHide() { st.hidden = !st.hidden; ui.classList.toggle('off', st.hidden); }
+$('#bHide').addEventListener('click', toggleHide);
+
+const wake = () => { st.lastMove = performance.now(); ui.classList.remove('idle'); document.body.classList.remove('idle'); };
+addEventListener('pointermove', wake); addEventListener('pointerdown', wake);
+
+addEventListener('keydown', e => {
+  if (e.target.matches && e.target.matches('input[type=range]') && e.key.startsWith('Arrow')) return;
+  wake();
+  if (e.key === 'Escape' && st.intro) { endIntro(true); return; }
+  if (!st.started) return;
+  if (/^[1-5]$/.test(e.key)) selectPulsar(+e.key - 1);
+  else if (e.code === 'KeyH') { if (!st.intro) toggleHide(); }
+  else if (e.code === 'KeyF') fullscreen();
+  else if (e.code === 'KeyM') setMute(!st.muted);
+  else if (e.key === '+' || e.key === '=') zoomBy(1 / 1.25);
+  else if (e.key === '-' || e.key === '_') zoomBy(1.25);
+});
+
+// one pointer orbits (springs back to the line of sight), two pointers pinch to zoom, the wheel zooms
+let lastX = 0, lastY = 0, pinchSpan = 0, pinchDist = 0;
+const pointers = new Map();
+const span = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
+canvas.addEventListener('pointerdown', e => {
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  canvas.setPointerCapture(e.pointerId);
+  if (pointers.size === 2) { st.dragging = false; pinchSpan = span(); pinchDist = st.distT; return; }
+  st.dragging = true; lastX = e.clientX; lastY = e.clientY; canvas.classList.add('drag');
+});
+canvas.addEventListener('pointermove', e => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 2) { st.distT = clamp(pinchDist * pinchSpan / span(), ZOOM_MIN, ZOOM_MAX); return; }
+  if (!st.dragging) return;
+  st.yaw = clamp(st.yaw - (e.clientX - lastX) * 0.004, -1.2, 1.2);
+  st.pitch = clamp(st.pitch + (e.clientY - lastY) * 0.004, -0.8, 0.8);
+  lastX = e.clientX; lastY = e.clientY;
+});
+const endDrag = e => { pointers.delete(e.pointerId); st.dragging = false; canvas.classList.remove('drag'); };
+canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('wheel', e => { e.preventDefault(); zoomBy(Math.exp(clamp(e.deltaY, -120, 120) * 0.0015)); }, { passive: false });
+
+// ---------- intro ----------
+let introTimers = [];
+const at = (s, fn) => introTimers.push(setTimeout(fn, s * 1000));
+const INTRO = [
+  [1.2, 'Кембридж, 1967 год.', 3.6],
+  [5.6, 'Аспирантка Джоселин Белл замечает на ленте самописца странную помеху.', 4.6],
+  [11.2, 'Помеха возвращается каждые 1,337 секунды. Ровно, как метроном.', 4.6],
+  [16.8, 'Сигнал в шутку называют LGM-1, «маленькие зелёные человечки».', 4.6],
+  [22.6, 'Это оказались не они. Это мёртвая звезда, которая всё ещё вращается.', 4.6],
+  [28.6, 'Потом нашли звёзды, которые крутятся в сотни раз быстрее.', 4.4],
+  [34.2, 'Двадцать километров в поперечнике. Масса больше, чем у Солнца.', 4.4],
+  [39.8, 'J0437−4715 делает 174 оборота в секунду. И каждый раз её луч проходит по Земле.', 5.4],
+];
+
+// accelerate from the current spin to pulsar `to`, sweeping frequency on a log scale
+function spinUp(to, dur) {
+  const t = A.ctx.currentTime;
+  st.spin = { t0: t, dur, f0: engine.freqAt(t), to, swapped: false, next: 0 };
+  st.cur = to;
+  applyVoice(t);
+  swell(t + 0.2, 0.6, 9, 7, 14);
+}
+function driveSpin(nowMs) {
+  const s = st.spin;
+  if (!s || !A.ctx || nowMs < s.next) return;
+  s.next = nowMs + 20;
+  const u = clamp((A.ctx.currentTime - s.t0) / s.dur, 0, 1), e = u * u * (3 - 2 * u);
+  const f1 = effFreq(PULSARS[s.to]), f = s.f0 * Math.pow(f1 / s.f0, e);
+  engine.retune(f);
+  if (!s.swapped && f > 25) { A.osc.setPeriodicWave(A.waves[s.to]); s.swapped = true; }
+  if (u >= 1) st.spin = null;
+}
+function landHome() {
+  st.spin = null; st.cur = HOME;
+  if (!A.ctx) return;
+  applyVoice(A.ctx.currentTime);
+  engine.retune(effFreq(PULSARS[HOME]));
+  A.osc.setPeriodicWave(A.waves[HOME]);
+}
+
+function unmutePulses(ramp) {
+  if (!A.ctx) return;
+  const t = A.ctx.currentTime, g = A.pMute.gain;
+  g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(1, t + ramp);
+}
+
+function begin() {
+  if (st.started) return;
+  st.started = true; st.intro = true;
+  st.cur = 0; // the story starts with LGM-1
+  startAudio();
+  gate.classList.add('gone');
+  setTimeout(() => { gate.hidden = true; }, 1900);
+  skipBtn.hidden = false;
+  st.fadeTarget = 0; st.fadeTau = 0.8;
+  INTRO.forEach(([s, text, hold]) => at(s, () => narrate(text, hold)));
+  at(3.0, () => unmutePulses(2.5));
+  at(16.3, () => { if (A.ctx) swell(A.ctx.currentTime, 0.35, 8, 4, 10); st.fadeTarget = 1; st.fadeTau = 4.5; });
+  at(28.0, () => { if (A.ctx) spinUp(HOME, 10); });
+  at(46.0, () => endIntro(false));
+}
+
+function endIntro(skipped) {
+  if (!st.intro) return;
+  introTimers.forEach(clearTimeout); introTimers = [];
+  st.intro = false; st.playing = true;
+  skipBtn.hidden = true;
+  if (skipped) { narrTok++; narrEl.classList.remove('on'); unmutePulses(1.2); st.fadeTarget = 1; st.fadeTau = 1.2; }
+  if (skipped || st.spin) landHome();
+  updateHUD(PULSARS[st.cur]); showTimeScale();
+  if (!st.hidden) ui.classList.remove('off');
+  wake();
+}
+
+$('#go').addEventListener('click', begin);
+skipBtn.addEventListener('click', () => endIntro(true));
+
+// ---------- frame loop ----------
+let last = performance.now();
+const vis = st.vis;
+function frame(nowMs) {
+  requestAnimationFrame(frame);
+  // high-refresh laptop screens call this 120-144 times a second; draw every other one there
+  if (nowMs - last < 12.5) return;
+  const dt = Math.min(0.1, Math.max(0.001, (nowMs - last) / 1000)); last = nowMs;
+  driveSpin(nowMs);
+  const p = PULSARS[st.cur];
+  const tA = audioNow();
+  const phase = engine.phaseAt(tA), fEff = engine.freqAt(tA);
+
+  // ease scene parameters toward the selected pulsar
+  const k = 1 - Math.exp(-dt / 0.7);
+  vis.alpha += (deg(p.alpha) - vis.alpha) * k;
+  vis.beamW += (p.beamW - vis.beamW) * k;
+  for (let i = 0; i < 4; i++) vis.env[i] += (p.env[i] - vis.env[i]) * k;
+  for (let i = 0; i < 3; i++) { vis.nebA[i] += (p.nebA[i] - vis.nebA[i]) * k; vis.nebB[i] += (p.nebB[i] - vis.nebB[i]) * k; }
+  for (const key in p.look) {
+    const tv = p.look[key];
+    if (Array.isArray(tv)) for (let i = 0; i < tv.length; i++) vis.look[key][i] += (tv[i] - vis.look[key][i]) * k;
+    else vis.look[key] += (tv - vis.look[key]) * k;
+  }
+
+  // above a few turns per second the beams are drawn time-averaged: persistence of vision, and no strobing
+  const blurT = smooth(2.5, 6, fEff);
+  st.blur = approach(st.blur, blurT, dt, blurT > st.blur ? 0.06 : 0.5);
+  st.tuneT += dt;
+  st.tune = st.tuneT < 1.6 ? Math.pow(Math.sin(Math.PI * st.tuneT / 1.6), 0.7) : 0;
+  st.fade = approach(st.fade, st.fadeTarget, dt, st.fadeTau);
+  st.plasmaT += dt * clamp(effScale(p), 0.04, 1);
+  st.driftT += dt;
+  st.dist = approach(st.dist, st.distT, dt, 0.2);
+
+  // What the screen can show. Up to a few turns per second the picture follows the true phase, in step with the sound.
+  // Hundreds of turns per second can't be drawn at 60 frames, so the drawn spin settles at a fast but readable
+  // stroboscopic rate, and a faint averaged cone behind it stands for the real blur.
+  const fDraw = fEff < 2.5 ? fEff : Math.min(5.5, 2.5 + 0.55 * Math.log(fEff / 2.5));
+  st.dispRate = approach(st.dispRate, fDraw, dt, 0.3);
+  if (fEff < 2.5) { let d = phase - st.disp; d -= Math.round(d); st.disp += d * (1 - Math.exp(-dt / 0.15)) + dt * fEff; }
+  else st.disp += dt * st.dispRate;
+
+  // star frame: local y is the spin axis, local x carries the north magnetic pole at phase 0
+  const frameAt = ph => { const c = Math.cos(TAU * ph), s = Math.sin(TAU * ph); return [sub(mul(X0, c), mul(Z0, s)), add(mul(X0, s), mul(Z0, c))]; };
+  const [Ax, Az] = frameAt(st.disp);
+  const a = vis.alpha, sa = Math.sin(a), ca = Math.cos(a);
+  const m1 = [sa, ca, 0], m2 = [-sa, -ca, 0];
+  const me1 = norm(cross(m1, [0, 0, 1])), me2 = cross(m1, me1);
+  const a1 = Math.acos(clamp(m1[1], -1, 1)), a2 = Math.PI - a1;
+  const duty = aa => Math.min(1, 0.282 * vis.beamW / Math.max(Math.sin(aa), 0.05));
+
+  st.swirl += dt * 5.0;
+
+  // side view from just above the equator: spin axis upright, beams top to bottom
+  if (!st.dragging) { st.yaw = approach(st.yaw, 0, dt, 1.6); st.pitch = approach(st.pitch, 0, dt, 1.6); }
+  const drift = reduceMotion ? 0 : 1;
+  const yaw = st.yaw + drift * 0.32 * Math.sin(st.driftT * 0.033);
+  const pitch = st.pitch + drift * 0.05 * Math.sin(st.driftT * 0.051 + 1);
+  let cd = rot(O_VIEW, S_AXIS, yaw);
+  cd = rot(cd, norm(cross(S_AXIS, cd)), pitch);
+  const camPos = mul(cd, st.dist);
+  const cb = camBasis(camPos, 0);
+
+  // the pulse as it is heard right now, for the lamp and a faint exposure lift on slow pulsars
+  const n = Math.round(phase);
+  const amp = fEff < 20 ? (A.amps.get(n) ?? 1) : A.scint;
+  const pulse = Math.min(1, profileAt(p, phase - Math.floor(phase)) * amp);
+  const flash = pulse * (1 - st.blur) * (1 - st.tune) * 0.6;
+  const L = vis.look;
+  const beamI = 3.0 * L.beamI * (1 - 0.75 * st.tune) * (st.blur > 0.5 ? 0.8 + 0.2 * A.scint : 1);
+
+  // HUD pulse lamp and pulse stack
+  const dotEl = $('#dot');
+  dotEl.style.opacity = (st.blur > 0.5 ? 0.35 + 0.55 * Math.random() * A.scint : 0.12 + 0.88 * pulse).toFixed(3);
+  if (st.started && !st.intro) {
+    if (fEff < 3) {
+      const pn = Math.floor(phase - 0.06);
+      if (WF.lastPulse !== null && pn > WF.lastPulse) wfAdd(p, A.amps.get(pn) ?? 1, 1);
+      WF.lastPulse = pn;
+      wfCaption(`${p.key} · каждая линия — один оборот`);
+    } else {
+      WF.lastPulse = null; WF.acc += dt;
+      const folds = Math.max(1, Math.round(0.42 * fEff));
+      if (WF.acc > 0.42) { WF.acc = 0; wfAdd(p, 0.85 + 0.2 * Math.random(), folds); }
+      wfCaption(`${p.key} · каждая линия — ${folds.toLocaleString('ru-RU')} ${plural(folds, 'оборот', 'оборота', 'оборотов')}, сложенных по периоду`);
+    }
+  }
+
+  if (st.playing && !st.hidden && performance.now() - st.lastMove > 7000 && !ui.matches(':focus-within')) {
+    ui.classList.add('idle'); document.body.classList.add('idle');
+  }
+
+  if (!G) return;
+  const U = {
+    uTime: st.plasmaT,
+    uCamPos: camPos, uCamR: cb.R, uCamU: cb.U, uCamF: cb.F, uTanHalf: Math.tan(deg(19)),
+    uSpin: S_AXIS, uE1: X0, uE2: Z0,
+    uAx: Ax, uAy: S_AXIS, uAz: Az,
+    uM1: m1, uM2: m2, uMe1: me1, uMe2: me2,
+    uA1: a1, uA2: a2, uDuty1: duty(a1), uDuty2: duty(a2),
+    uBeamW: vis.beamW, uBlur: st.blur, uBeamI: beamI,
+    uSinA: sa, uCosA: ca, uTwist: L.twist, uCore: L.core, uBeam2: L.beam2, uFieldExt: L.fieldExt, uFieldI: L.fieldI,
+    uSurf: L.surf, uCaps: L.caps, uBeamTint: L.tint, uSurfTint: L.surfTint, uBeamLen: clamp(4.6 + (st.dist - 5.4) * 0.5, 4.6, 9), uSwirl: [Math.cos(st.swirl), Math.sin(st.swirl)],
+    uFade: st.fade, uHdr: G.fmt.hdr,
+    uEnv: vis.env, uNebA: vis.nebA, uNebB: vis.nebB, uGal: GAL, uGalC: GALC, uClusterDir: CLUSTER_DIR, uCompPos: COMP_POS,
+    __flash: flash,
+  };
+  drawGL(U);
+  adaptResolution(dt);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</html>
